@@ -1,0 +1,17 @@
+name: Daily RSS check
+on:
+schedule:
+- cron: '0 12 * * *'
+workflow_dispatch:
+jobs:
+check-rss:
+runs-on: ubuntu-latest
+steps:
+- name: Check out repo
+uses: actions/checkout@v4
+- name: Curl test to example.com
+run: |
+echo "Start: $(date -u)"
+curl -sSf https://rssblog.ameba.jp/angerme-new/rss20.xml -o /dev/null || (echo "RSS fetch failed" && exit 1)
+echo "RSS fetch OK"
+echo "End: $(date -u)"
