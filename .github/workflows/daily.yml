@@ -13,4 +13,4 @@ jobs:
     steps:
       - name: Check Angerme Blog RSS
         run: |
-          curl -I https://rssblog.ameba.jp/angerme-ss-shin/rss20.xml
+          curl -I https://rssblog.ameba.jp/angerme-new/rss20.xml
