@@ -1,17 +1,16 @@
-name: Daily RSS check
+name: Daily Blog Summary Bot Test
+
 on:
-schedule:
-- cron: '0 12 * * *'
-workflow_dispatch:
+  # 手動でいつでも実行できるようにする設定
+  workflow_dispatch:
+  # 毎日日本時間の朝9:00（世界標準時の0:00）に定期実行する設定
+  schedule:
+    - cron: '0 0 * * *'
+
 jobs:
-check-rss:
-runs-on: ubuntu-latest
-steps:
-- name: Check out repo
-uses: actions/checkout@v4
-- name: Curl test to example.com
-run: |
-echo "Start: $(date -u)"
-curl -sSf https://rssblog.ameba.jp/angerme-new/rss20.xml -o /dev/null || (echo "RSS fetch failed" && exit 1)
-echo "RSS fetch OK"
-echo "End: $(date -u)"
+  test_rss:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Angerme Blog RSS
+        run: |
+          curl -I https://rssblog.ameba.jp/angerme-ss-shin/rss20.xml
