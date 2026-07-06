@@ -5,7 +5,7 @@ from google import genai
 
 def main():
     # 1. ブログのRSSから最新の1件を取得する
-    rss_url = "https://rssblog.ameba.jp/angerme-ss-shin/rss20.xml"
+    rss_url = "https://rssblog.ameba.jp/angerme-new/rss20.xml"
     
     try:
         response = urllib.request.urlopen(rss_url)
@@ -24,9 +24,11 @@ def main():
 以下のアンジュルムのブログ記事を読み、X（Twitter）に投稿するための要約を日本語で作成してください。
 
 【制約事項】
-・文字数は100文字程度
-・ハッシュタグ「#アンジュルム」をつける
-・親しみやすいトーンで
+・直近24時間以内に投稿があったブログを対象に
+・メンバー毎に文字数は100文字程度
+・ハッシュタグ「#アンジュルム」「#アンジュルムオタク便り」をつける
+・落ち着いたトーンで
+・写真の内容も解釈して
 
 【記事タイトル】
 {title}
