@@ -32,7 +32,7 @@ def main():
         description = item.find("description").text
         category_tag = item.find("category")
         
-        # 【修正】テーマが取得できない、または空の場合は None にする
+        # テーマが取得できない、または空の場合は None にする
         theme = category_tag.text if category_tag is not None else None
         
         pub_date_str = item.find("pubDate").text
@@ -83,9 +83,10 @@ def main():
                 f"【出力フォーマットの厳格なルール】\n"
                 f"必ず以下の2行の形式だけで出力してください。挨拶、前置き、セクション名、解説などは一切出力しないでください。\n\n"
                 f"{format_target}\n"
-                f"「（ここに、過去記事との繋がりや画像分析を織り交ぜた、40文字以内の超要約を記述）」\n\n"
+                f"（ここに、過去記事との繋がりや画像分析を織り交ぜた、40文字以内の超要約を記述）\n\n"
+                f"※【重要】要約の文頭や文末に「」や『』、丸括弧などの記号は絶対に付けないでください。文章だけで開始してください。\n"
+                f"※【重要】メンバーの口調のまま表現する部分は「」の中に書き、客観的にまとめた文章（間接表現）は「」なしで書いてください。例：「〜と言った」「〜を報告した」「〜について語った」など。\n"
                 f"※【重要】文字数は必ず40文字以内（厳守）にしてください。\n"
-                f"メンバーの口調のままの直接表現を「」で、間接表現は「」なしで書いてください。"
                 f"※【厳禁】ブログ内の具体的な場所（聖地や撮影場所など）を特定・推測できる情報は絶対に記載禁止です。"
             )
             contents.append(prompt_text)
@@ -99,44 +100,6 @@ def main():
                     contents.append(types.Part.from_bytes(data=img_data, mime_type="image/jpeg"))
                 except Exception as e:
                     print(f"[画像読み込み失敗] {e}")
-
-            # Geminiで生成
-            try:
-                response = client_gemini.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=contents
-                )
-                result_text = response.text.strip()
-                if result_text:
-                    tweet_lines.append(result_text)
-            except Exception as e:
-                print(f"Gemini APIエラー: {e}")
-
-    # 6. 新着投稿があれば、1つのポストにまとめて末尾にハッシュタグを付与
-    if tweet_lines:
-        summary_text = "\n\n".join(tweet_lines)
-        final_tweet = f"{summary_text}\n\n#アンジュルム #アンジュルムブログ定期便"
-        
-        print("\n[本番投稿内容の確認]")
-        print(final_tweet)
-        
-        # TweepyによるXへの投稿処理
-        try:
-            client_x = tweepy.Client(
-                consumer_key=os.environ.get("TWITTER_API_KEY"),
-                consumer_secret=os.environ.get("TWITTER_API_SECRET"),
-                access_token=os.environ.get("TWITTER_ACCESS_TOKEN"),
-                access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
-            )
-            client_x.create_tweet(text=final_tweet)
-            print("X（Twitter）へのまとめ投稿が成功しました！")
-        except Exception as e:
-            print(f"X（Twitter）投稿エラー: {e}")
-    else:
-        print("過去24時間以内に新しいブログ投稿はなかったため、投稿をスキップしました。")
-
-if __name__ == "__main__":
-    main()
 
             # Geminiで生成
             try:
