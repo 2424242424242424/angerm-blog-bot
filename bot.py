@@ -5,7 +5,7 @@ from google import genai
 
 def main():
     # RSSから記事を取得
-    rss_url = "https://rssblog.ameba.jp/angerme-ss-shin/rss20.xml"
+    rss_url = "https://rssblog.ameba.jp/angerme-new/rss20.xml"
     response = urllib.request.urlopen(rss_url)
     xml_data = response.read()
     root = ET.fromstring(xml_data)
