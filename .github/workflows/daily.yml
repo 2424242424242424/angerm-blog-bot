@@ -1,32 +1,32 @@
 name: Daily Blog Summary Bot Test
 
 on:
-  workflow_dispatch: # 手動実行用のボタンを設置
+  workflow_dispatch: # 手動実行用
 
 jobs:
   test_rss:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. GitHubにあるあなたのプログラム（bot.py）を読み込む
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Pythonを動かせる環境を準備する
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      # 3. GeminiのAIを使うために必要なパーツ（google-genai）をインストールする
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install google-genai tweepy
 
-
-      # 4. 登録したAPIキーを使いながら、bot.pyを実行する
+      # ここの「env:」に4つの鍵をすべて並べる必要があります！
       - name: Run blog summary bot
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+          TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+          TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+          TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
         run: python bot.py
