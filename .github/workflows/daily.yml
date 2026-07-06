@@ -3,7 +3,7 @@ name: Daily Blog Summary Bot Test
 on:
   workflow_dispatch: # 手動で動かす用（残しておくと便利です）
   schedule:
-    - cron: '0 22 * * *' # 日本時間（JST）の毎日朝 07:00 に自動実行
+    - cron: '0 20 * * *' # 日本時間（JST）の毎日朝 07:00 に自動実行
 
 jobs:
   test_rss:
