@@ -123,7 +123,7 @@ def main():
     # 6. 新着投稿があれば、1つのポストにまとめてX（Twitter）へ自動投稿
     if tweet_lines:
         summary_text = "\n\n".join(tweet_lines)
-        final_tweet = f"#アンジュルムブログ定期便 ※AI執筆のため、一部異なる場合あり\n\n{summary_text}"
+        final_tweet = f"#アンジュルムブログ定期便 ※AI執筆のため、内容が異なる場合あり\n\n{summary_text}"
         
         print("\n[本番投稿内容の確認]")
         print(final_tweet)
