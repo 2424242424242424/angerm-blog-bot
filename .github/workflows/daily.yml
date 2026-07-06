@@ -1,16 +1,31 @@
 name: Daily Blog Summary Bot Test
 
 on:
-  # 手動でいつでも実行できるようにする設定
-  workflow_dispatch:
-  # 毎日日本時間の朝9:00（世界標準時の0:00）に定期実行する設定
-  schedule:
-    - cron: '0 0 * * *'
+  workflow_dispatch: # 手動実行用のボタンを設置
 
 jobs:
   test_rss:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Check Angerme Blog RSS
+      # 1. GitHubにあるあなたのプログラム（bot.py）を読み込む
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Pythonを動かせる環境を準備する
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 3. GeminiのAIを使うために必要なパーツ（google-genai）をインストールする
+      - name: Install dependencies
         run: |
-          curl -I https://rssblog.ameba.jp/angerme-new/rss20.xml
+          python -m pip install --upgrade pip
+          pip install google-genai
+
+      # 4. 登録したAPIキーを使いながら、bot.pyを実行する
+      - name: Run blog summary bot
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python bot.py
