@@ -5,7 +5,6 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from google import genai
 from google.genai import types
-import tweepy
 
 def main():
     # 1. RSSからすべての記事を取得
@@ -18,10 +17,11 @@ def main():
     # 2. 基準時刻の設定 (JST基準)
     jst = timezone(timedelta(hours=9))
     now = datetime.now(jst)
+    # デバッグ用に新着の判定基準を広げたい場合は、ここの days=1 を days=3 などに一時的に広げてください
     one_day_ago = now - timedelta(days=1)
     
     print(f"現在時刻: {now.strftime('%Y-%m-%d %H:%M:%S')} (JST)")
-    print("過去24時間の新着記事を対象に、要約を作成して1つのポストにまとめます。\n")
+    print("【デバッグモード】要約結果をログに出力します（Xへの投稿は行いません）。\n")
 
     client_gemini = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
@@ -55,7 +55,7 @@ def main():
         if post["pub_date"] >= one_day_ago:
             current_theme = post["theme"]
             
-            # 4. 同じメンバー（テーマ）の直近の過去記事をコンテキストとして抽出
+            # 4. 同じメンバー（テーマ）の直近の过去記事をコンテキストとして抽出
             past_context = ""
             context_count = 1
             for past in all_posts:
@@ -82,11 +82,11 @@ def main():
                 f"■ 直近の過去記事の文脈:\n{past_context if past_context else '直近に過去投稿なし'}\n\n"
                 f"【出力フォーマットの厳格なルール】\n"
                 f"必ず以下の2行の形式だけで出力してください。挨拶、前置き、セクション名、解説などは一切出力しないでください。\n\n"
+                f"読み手が満足感を感じるように、ブログにある内容や言及にはなるべく多く触れてください。"
                 f"{format_target}\n"
-                f"（ここに、過去記事との繋がりや画像分析を織り交ぜた、40文字以内の超要約を記述）\n\n"
                 f"※【重要】要約の文頭や文末に「」や『』、丸括弧などの記号は絶対に付けないでください。文章だけで開始してください。\n"
-                f"※【重要】メンバーの口調のまま表現する部分は「」の中に書き、客観的にまとめた文章（間接表現）は「」なしで書いてください。例：「〜と言った」「〜を報告した」「〜について語った」など。\n"
-                f"※【重要】文字数は必ず40文字以内（厳守）にしてください。\n"
+                f"※【重要】メンバーの口調のまま表現する部分は「」書きで直接表現で、客観的にまとめた文章は「」なしの間接表現にしてください。また、間接表現はブログの雰囲気に合わせてファニーやエモーションな表現にしてください。
+                f"※【重要】文字数は必ず50文字以内（厳守）にしてください。\n"
                 f"※【厳禁】ブログ内の具体的な場所（聖地や撮影場所など）を特定・推測できる情報は絶対に記載禁止です。"
             )
             contents.append(prompt_text)
@@ -113,28 +113,19 @@ def main():
             except Exception as e:
                 print(f"Gemini APIエラー: {e}")
 
-    # 6. 新着投稿があれば、1つのポストにまとめて末尾にハッシュタグを付与
+    # 6. 【テスト用出力】Xには投稿せず、ログにだけ表示する
     if tweet_lines:
         summary_text = "\n\n".join(tweet_lines)
         final_tweet = f"{summary_text}\n\n#アンジュルム #アンジュルムブログ定期便"
         
-        print("\n[本番投稿内容の確認]")
+        print("\n==============================================")
+        print("★ [デバッグ確認用] もし本番なら以下の内容がXに投稿されます ★")
+        print("==============================================")
         print(final_tweet)
-        
-        # TweepyによるXへの投稿処理
-        try:
-            client_x = tweepy.Client(
-                consumer_key=os.environ.get("TWITTER_API_KEY"),
-                consumer_secret=os.environ.get("TWITTER_API_SECRET"),
-                access_token=os.environ.get("TWITTER_ACCESS_TOKEN"),
-                access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
-            )
-            client_x.create_tweet(text=final_tweet)
-            print("X（Twitter）へのまとめ投稿が成功しました！")
-        except Exception as e:
-            print(f"X（Twitter）投稿エラー: {e}")
+        print("==============================================")
     else:
-        print("過去24時間以内に新しいブログ投稿はなかったため、投稿をスキップしました。")
+        print("過去24時間以内に新しいブログ投稿はありませんでした。")
 
 if __name__ == "__main__":
     main()
+
