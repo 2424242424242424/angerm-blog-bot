@@ -123,7 +123,7 @@ def main():
     if tweet_lines:
         # メンバーごとの要約を2行改行で繋ぐ（1行目のタイトル表示は廃止されました）
         summary_text = "\n\n".join(tweet_lines)
-        final_tweet = f"{summary_text}\n\n#アンジュルム #アンジュルムブログ定期便"
+        final_tweet = f"#アンジュルムブログ定期便\n\n{summary_text}"
         
         print("\n==============================================")
         print("★ [デバッグ確認用] もし本番なら以下の内容がXに投稿されます ★")
