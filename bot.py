@@ -20,15 +20,14 @@ def main():
     response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
     summary = response.text
 
-    # X(Twitter)に投稿
-    auth = tweepy.OAuth1UserHandler(
-        os.environ.get("TWITTER_API_KEY"),
-        os.environ.get("TWITTER_API_SECRET"),
-        os.environ.get("TWITTER_ACCESS_TOKEN"),
-        os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
+    # X(Twitter)に投稿 (無料枠で確実に動くOAuth 2.0の書き方です)
+    client_x = tweepy.Client(
+        consumer_key=os.environ.get("TWITTER_API_KEY"),
+        consumer_secret=os.environ.get("TWITTER_API_SECRET"),
+        access_token=os.environ.get("TWITTER_ACCESS_TOKEN"),
+        access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
     )
-    api = tweepy.API(auth)
-    api.update_status(status=summary)
+    client_x.create_tweet(text=summary)
     print("投稿完了！")
 
 if __name__ == "__main__":
