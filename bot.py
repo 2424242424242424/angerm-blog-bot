@@ -2,10 +2,9 @@ import os
 import urllib.request
 import xml.etree.ElementTree as ET
 from google import genai
-import tweepy # X投稿用ライブラリ
 
 def main():
-    # RSSから記事を取得（以前のコードと同じ）
+    # RSSから記事を取得
     rss_url = "https://rssblog.ameba.jp/angerme-ss-shin/rss20.xml"
     response = urllib.request.urlopen(rss_url)
     xml_data = response.read()
@@ -20,15 +19,11 @@ def main():
     response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
     summary = response.text
 
-    # X(Twitter)に投稿 (無料枠で確実に動くOAuth 2.0の書き方です)
-    client_x = tweepy.Client(
-        consumer_key=os.environ.get("TWITTER_API_KEY"),
-        consumer_secret=os.environ.get("TWITTER_API_SECRET"),
-        access_token=os.environ.get("TWITTER_ACCESS_TOKEN"),
-        access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
-    )
-    client_x.create_tweet(text=summary)
-    print("投稿完了！")
+    # 【一時改修】Xへの投稿はせず、ログに出力してチェックできるようにする
+    print("--- [チェック用] 生成された要約内容ここから ---")
+    print(summary)
+    print("--- [チェック用] 生成された要約内容ここまで ---")
+    print("※現在はテストモードのため、Xへの投稿はスキップしました。")
 
 if __name__ == "__main__":
     main()
