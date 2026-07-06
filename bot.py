@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from google import genai
 from google.genai import types
+import tweepy
 
 def main():
     # 1. RSSからすべての記事を取得
@@ -17,11 +18,11 @@ def main():
     # 2. 基準時刻の設定 (JST基準)
     jst = timezone(timedelta(hours=9))
     now = datetime.now(jst)
-    # デバッグ用：基準を広げたい場合は days=1 を調整してください
+    # 本番運用：過去24時間以内の新着記事を判定
     one_day_ago = now - timedelta(days=1)
     
     print(f"現在時刻: {now.strftime('%Y-%m-%d %H:%M:%S')} (JST)")
-    print("【デバッグモード】要約結果をログに出力します（Xへの投稿は行いません）。\n")
+    print("【本番モード】過去24時間の新着記事を対象に要約を作成し、Xに自動投稿します。\n")
 
     client_gemini = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
@@ -68,7 +69,7 @@ def main():
             img_urls = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', post["description"])
             contents = []
             
-            # プロンプトの組み立て（あだ名指定と出力ルールをアップデート）
+            # プロンプトの組み立て
             prompt_text = (
                 f"あなたはアンジュルムの熱心なファンであり、優秀な広報アシスタントです。\n"
                 f"以下の情報（今回のブログ、直近の文脈、もしあれば画像）をすべて分析した上で、指定のフォーマットの【超要約】を1つだけ作成してください。\n\n"
@@ -79,14 +80,14 @@ def main():
                 f"【出力フォーマットと表現の厳格なルール】\n"
                 f"1. 挨拶、前置き、ブログタイトル、セクション名、解説などは一切出力せず、純粋な要約文（2〜3行程度）だけを出力してください。\n"
                 f"2. 読み手が満足感を感じるように、ブログにある内容や言及にはなるべく多く触れてください。\n"
-                f"3. 文章のなかに、必ず誰が話している内容か分かるように、以下の【指定のあだ名】を使ってメンバー名を書き入れてください。\n"
+                f"3. 文章のなかに、必ず誰が話している内容か分かるように、以下の【指定のあだ名】を使ってメンバー名を書き入れ、主語を明確にしてください。\n"
                 f"   【指定のあだ名ルール】\n"
                 f"   ・伊勢鈴蘭 → れら\n"
                 f"   ・橋迫鈴 → 鈴ちゃん\n"
                 f"   ・為永幸音 → しおんぬ\n"
                 f"   ・川名凜 → ケロ\n"
                 f"   ・松本わかな → わかにゃ\n"
-                f"   ・平山遊季 → ゆきちゃん\n"
+                f"   ・平山遊季 →ゆきちゃん\n"
                 f"   ・下井谷幸穂 → ゆっぴょん\n"
                 f"   ・後藤花 → はなな\n"
                 f"   ・長野桃羽 → もち\n"
@@ -119,19 +120,27 @@ def main():
             except Exception as e:
                 print(f"Gemini APIエラー: {e}")
 
-    # 6. 【テスト用出力】Xには投稿せず、ログにだけ表示する
+    # 6. 新着投稿があれば、1つのポストにまとめてX（Twitter）へ自動投稿
     if tweet_lines:
-        # メンバーごとの要約を2行改行で繋ぐ（1行目のタイトル表示は廃止されました）
         summary_text = "\n\n".join(tweet_lines)
         final_tweet = f"#アンジュルムブログ定期便 ※AI執筆のため、一部異なる場合あり\n\n{summary_text}"
         
-        print("\n==============================================")
-        print("★ [デバッグ確認用] もし本番なら以下の内容がXに投稿されます ★")
-        print("==============================================")
+        print("\n[本番投稿内容の確認]")
         print(final_tweet)
-        print("==============================================")
+        
+        try:
+            client_x = tweepy.Client(
+                consumer_key=os.environ.get("TWITTER_API_KEY"),
+                consumer_secret=os.environ.get("TWITTER_API_SECRET"),
+                access_token=os.environ.get("TWITTER_ACCESS_TOKEN"),
+                access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
+            )
+            client_x.create_tweet(text=final_tweet)
+            print("X（Twitter）への本番投稿が正常に成功しました！")
+        except Exception as e:
+            print(f"X（Twitter）投稿エラー: {e}")
     else:
-        print("過去24時間以内に新しいブログ投稿はありませんでした。")
+        print("過去24時間以内に新しいブログ投稿はなかったため、投稿をスキップしました。")
 
 if __name__ == "__main__":
     main()
