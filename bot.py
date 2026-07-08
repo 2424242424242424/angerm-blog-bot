@@ -127,7 +127,7 @@ def main():
         
         # --- 変更箇所: 取得時刻を動的に生成してヘッダーに追加 ---
         time_str = now.strftime('%Y/%m/%d %H:%M時点')
-        final_tweet = f"{time_str} #アンジュルムブログ定期便🪽 ※忙しい人向けのブログ要約\n\n{summary_text}"
+        final_tweet = f"#アンジュルムブログ定期便🪽\n{time_str} ※忙しい人向けブログ要約です👍\n\n{summary_text}"
         # -----------------------------------------------------
         
         print("\n[本番投稿内容の確認]")
