@@ -124,7 +124,11 @@ def main():
     # 6. 新着投稿があれば、1つのポストにまとめてX（Twitter）へ自動投稿
     if tweet_lines:
         summary_text = "\n\n".join(tweet_lines)
-        final_tweet = f"#アンジュルムブログ定期便🪽 ※忙しい人向けのブログ要約\n\n{summary_text}"
+        
+        # --- 変更箇所: 取得時刻を動的に生成してヘッダーに追加 ---
+        time_str = now.strftime('%Y/%m/%d %H:%M時点')
+        final_tweet = f"{time_str} #アンジュルムブログ定期便🪽 ※忙しい人向けのブログ要約\n\n{summary_text}"
+        # -----------------------------------------------------
         
         print("\n[本番投稿内容の確認]")
         print(final_tweet)
