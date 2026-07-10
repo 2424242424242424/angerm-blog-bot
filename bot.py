@@ -12,6 +12,30 @@ from google import genai
 from google.genai import types
 import tweepy
 
+def get_real_image_url(html_url):
+    """アメブロの画像専用ページ(.html)から、本物の画像ファイル(.jpg)のURLを抽出する"""
+    if not html_url.endswith(".html"):
+        return html_url  # すでに.jpgなどの直リンクっぽい場合はそのまま返す
+        
+    try:
+        # 画像ページにアクセスしてHTMLソースを取得
+        req = urllib.request.Request(
+            html_url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        )
+        with urllib.request.urlopen(req, timeout=5) as res:
+            html_content = res.read().decode('utf-8', errors='ignore')
+            
+            # HTML内から stat.ameba.jp/user_images/... の jpg URLを探す
+            img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^"\']+\.(?:jpg|png|jpeg)', html_content)
+            if img_matches:
+                # 最初に見つかった本物の画像URLを返す
+                return img_matches[0]
+    except Exception as e:
+        print(f"[画像URL変換エラー] {html_url} の解析に失敗: {e}")
+        
+    return html_url
+
 def send_line_message(message, image_urls=None):
     """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る"""
     channel_access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
@@ -76,16 +100,14 @@ def main():
     jst = timezone(timedelta(hours=9))
     now = datetime.now(jst)
     
-    yesterday = now - timedelta(days=1)
-    start_of_yesterday = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_of_yesterday = yesterday.replace(hour=23, minute=59, second=59, microsecond=0)
+    # 実行時点から「過去24時間以内」に投稿された記事を対象にする
+    start_window = now - timedelta(hours=24)
     
     print(f"現在時刻: {now.strftime('%Y-%m-%d %H:%M:%S')} (JST)")
-    print(f"対象期間: {start_of_yesterday.strftime('%Y-%m-%d %H:%M:%S')} 〜 {end_of_yesterday.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    print(f"対象期間: {start_window.strftime('%Y-%m-%d %H:%M:%S')} 〜 {now.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
     client_gemini = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-    # 全記事をパースしてリスト化
     all_posts = []
     for item in items:
         title = item.find("title").text
@@ -107,16 +129,16 @@ def main():
         })
 
     processed_tweets_data = []
-    pool_images = []  # ランダム配信用全体の画像プール
+    pool_images = []
 
     # ==========================================
     # 処理①：対象ブログをスキャンして要約と画像を抽出
     # ==========================================
     for post in all_posts:
-        if start_of_yesterday <= post["pub_date"] <= end_of_yesterday:
+        if start_window <= post["pub_date"] <= now:
             current_theme = post["theme"]
+            print(f"【判定一致】処理を開始します: {current_theme} - {post['title']}")
 
-            # 過去記事文脈抽出
             past_context = ""
             context_count = 1
             for past in all_posts:
@@ -126,18 +148,29 @@ def main():
                     if context_count > 3:
                         break
 
-            # 安全にすべての画像URL (src) を一度引き抜く
-            raw_img_srcs = re.findall(r'src=["\']([^"\']+)["\']', post["description"])
+            # 属性（src, data-src, hrefなど）から画像に関わりそうなURLを一網打尽にする
+            raw_img_srcs = re.findall(r'(?:src|data-src|href)=["\']([^"\']+)["\']', post["description"])
             
             corrected_img_urls = []
             for url in raw_img_srcs:
-                # メンバーが投稿した本物の写真（stat.ameba.jp）だけを選別
-                if "stat.ameba.jp" in url:
+                url_lower = url.lower()
+                
+                # amebaの画像ページ、または直リンクサーバーが含まれているか
+                if "ameba" in url_lower or "ameblo" in url_lower or "user_images" in url_lower:
+                    if "charimages" in url_lower or "blog_import" in url_lower or url_lower.endswith(".gif"):
+                        continue
+                        
                     if url.startswith("//"):
                         url = "https:" + url
-                    corrected_img_urls.append(url)
+                        
+                    # 【ここが重要】画像ページURLだった場合、本物の画像直リンクへ変換する
+                    real_url = get_real_image_url(url)
+                    if real_url not in corrected_img_urls:
+                        corrected_img_urls.append(real_url)
 
-            # 【修正】1枚目しか写真がない場合は添付候補（プール）に入れない。2枚目以降がある場合のみ、2枚目以降をプールに蓄積
+            print(f" -> 解析完了。本物の画像URLを {len(corrected_img_urls)} 枚検出しました。")
+
+            # 1枚しかない場合はプールしない。2枚目以降がある場合のみ蓄積
             if len(corrected_img_urls) > 1:
                 pool_images.extend(corrected_img_urls[1:])
 
@@ -161,15 +194,15 @@ def main():
             
             contents = [prompt_text]
 
-            # Geminiの認識用には、従来通り「本物の1枚目の写真」をセット
+            # 変換後の「本物の1枚目の画像」をGeminiに渡す
             if corrected_img_urls:
                 try:
-                    img_data = urllib.request.urlopen(corrected_img_urls[0]).read()
+                    req = urllib.request.Request(corrected_img_urls[0], headers={'User-Agent': 'Mozilla/5.0'})
+                    img_data = urllib.request.urlopen(req).read()
                     contents.append(types.Part.from_bytes(data=img_data, mime_type="image/jpeg"))
                 except Exception as e:
                     print(f"[Gemini用画像読み込み失敗] {e}")
 
-            # Geminiで要約生成
             try:
                 response = client_gemini.models.generate_content(
                     model='gemini-2.5-flash',
@@ -185,10 +218,9 @@ def main():
     # 処理②：すべて終わった後、一括でXとLINEに投稿
     # ==========================================
     if processed_tweets_data:
-        # 溜まった画像プールから最大4枚をランダムに確定（重複を排除）
         unique_pool_images = list(set(pool_images))
         selected_images = random.sample(unique_pool_images, min(len(unique_pool_images), 4)) if unique_pool_images else []
-        print(f"検出された2枚目以降の写真総数: {len(unique_pool_images)}枚 -> ランダム選択された数: {len(selected_images)}枚")
+        print(f"確定した2枚目以降の写真総数: {len(unique_pool_images)}枚 -> ランダム選択された数: {len(selected_images)}枚")
 
         # X（Twitter）の認証
         auth = tweepy.OAuth1UserHandler(
@@ -209,11 +241,11 @@ def main():
         media_ids = []
         temp_files = []
 
-        # 選ばれた画像をローカルに一時ダウンロードしてXにアップロード
         for idx, img_url in enumerate(selected_images):
             try:
                 print(f"X用画像ダウンロード中 ({idx+1}/{len(selected_images)}): {img_url}")
-                img_data = urllib.request.urlopen(img_url).read()
+                req = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
+                img_data = urllib.request.urlopen(req).read()
                 
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
                 temp_file.write(img_data)
@@ -225,16 +257,14 @@ def main():
             except Exception as img_err:
                 print(f"X用画像アップロード失敗 ({img_url}): {img_err}")
 
-        # ツイート本文の構築
         summary_text = "\n\n".join(processed_tweets_data)
-        time_str = yesterday.strftime('%Y/%m/%d')
+        time_str = start_window.strftime('%Y/%m/%d')
         final_tweet = f"#アンジュルムブログ定期便🪽\n{time_str} ※忙しい人向けブログ要約です👍\n\n{summary_text}"
         
         print("\n[本番投稿内容の確認]")
         print(final_tweet)
         
         try:
-            # X（Twitter）への本番投稿（画像付き、なければテキストのみ）
             if media_ids:
                 client_x.create_tweet(text=final_tweet, media_ids=media_ids)
             else:
@@ -244,17 +274,16 @@ def main():
         except Exception as e:
             print(f"X（Twitter）投稿エラー: {e}")
         finally:
-            # 一時ファイルのクリーンアップ
             for path in temp_files:
                 if os.path.exists(path):
                     os.remove(path)
             
-        # LINE通知（選ばれた画像も同時に送信）
         line_message = f"\n【X投稿内容】\n{final_tweet}"
         send_line_message(line_message, image_urls=selected_images)
         
     else:
-        print("過去24時間以内に新しいブログ投稿はなかったため、投稿をスキップしました。")
+        print("対象期間内に新しいブログ投稿がRSSに存在しなかったため、処理をスキップしました。")
 
 if __name__ == "__main__":
     main()
+
