@@ -12,30 +12,6 @@ from google import genai
 from google.genai import types
 import tweepy
 
-def get_real_image_url(html_url):
-    """アメブロの画像専用ページ(.html)から、本物の画像ファイル(.jpg)のURLを抽出する"""
-    if not html_url.endswith(".html"):
-        return html_url  # すでに.jpgなどの直リンクっぽい場合はそのまま返す
-        
-    try:
-        # 画像ページにアクセスしてHTMLソースを取得
-        req = urllib.request.Request(
-            html_url, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        )
-        with urllib.request.urlopen(req, timeout=5) as res:
-            html_content = res.read().decode('utf-8', errors='ignore')
-            
-            # HTML内から stat.ameba.jp/user_images/... の jpg URLを探す
-            img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^"\']+\.(?:jpg|png|jpeg)', html_content)
-            if img_matches:
-                # 最初に見つかった本物の画像URLを返す
-                return img_matches[0]
-    except Exception as e:
-        print(f"[画像URL変換エラー] {html_url} の解析に失敗: {e}")
-        
-    return html_url
-
 def send_line_message(message, image_urls=None):
     """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る"""
     channel_access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
@@ -100,11 +76,13 @@ def main():
     jst = timezone(timedelta(hours=9))
     now = datetime.now(jst)
     
-    # 実行時点から「過去24時間以内」に投稿された記事を対象にする
-    start_window = now - timedelta(hours=24)
+    # 【修正】対象期間を実行日の「前日（00:00:00 〜 23:59:59）」に厳格化
+    yesterday = now - timedelta(days=1)
+    start_of_yesterday = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_of_yesterday = yesterday.replace(hour=23, minute=59, second=59, microsecond=0)
     
     print(f"現在時刻: {now.strftime('%Y-%m-%d %H:%M:%S')} (JST)")
-    print(f"対象期間: {start_window.strftime('%Y-%m-%d %H:%M:%S')} 〜 {now.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    print(f"対象期間（前日限定）: {start_of_yesterday.strftime('%Y-%m-%d %H:%M:%S')} 〜 {end_of_yesterday.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
     client_gemini = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
@@ -135,7 +113,8 @@ def main():
     # 処理①：対象ブログをスキャンして要約と画像を抽出
     # ==========================================
     for post in all_posts:
-        if start_window <= post["pub_date"] <= now:
+        # 前日（昨日）の投稿のみを対象とする
+        if start_of_yesterday <= post["pub_date"] <= end_of_yesterday:
             current_theme = post["theme"]
             print(f"【判定一致】処理を開始します: {current_theme} - {post['title']}")
 
@@ -148,29 +127,20 @@ def main():
                     if context_count > 3:
                         break
 
-            # 属性（src, data-src, hrefなど）から画像に関わりそうなURLを一網打尽にする
-            raw_img_srcs = re.findall(r'(?:src|data-src|href)=["\']([^"\']+)["\']', post["description"])
-            
+            # 【修正】アメブロの画像URL（stat.ameba.jp）を確実に、重複なく抽出する正規表現
             corrected_img_urls = []
-            for url in raw_img_srcs:
-                url_lower = url.lower()
-                
-                # amebaの画像ページ、または直リンクサーバーが含まれているか
-                if "ameba" in url_lower or "ameblo" in url_lower or "user_images" in url_lower:
-                    if "charimages" in url_lower or "blog_import" in url_lower or url_lower.endswith(".gif"):
-                        continue
-                        
-                    if url.startswith("//"):
-                        url = "https:" + url
-                        
-                    # 【ここが重要】画像ページURLだった場合、本物の画像直リンクへ変換する
-                    real_url = get_real_image_url(url)
-                    if real_url not in corrected_img_urls:
-                        corrected_img_urls.append(real_url)
+            raw_img_matches = re.findall(r'src=["\'](https?://stat\.ameba\.jp/user_images/[^"\']+)["\']', post["description"])
+            
+            for url in raw_img_matches:
+                # スタンプや絵文字などのアイコンは除外
+                if "charimages" in url or "blog_import" in url or url.endswith(".gif"):
+                    continue
+                if url not in corrected_img_urls:
+                    corrected_img_urls.append(url)
 
-            print(f" -> 解析完了。本物の画像URLを {len(corrected_img_urls)} 枚検出しました。")
+            print(f" -> 抽出された有効な写真（全枚数）: {len(corrected_img_urls)}枚")
 
-            # 1枚しかない場合はプールしない。2枚目以降がある場合のみ蓄積
+            # 1枚しかない場合はプールしない（添付しない）。2枚目以降がある場合のみ蓄積
             if len(corrected_img_urls) > 1:
                 pool_images.extend(corrected_img_urls[1:])
 
@@ -184,17 +154,18 @@ def main():
                 f"■ 直近の過去記事の文脈:\n{past_context if past_context else '直近に過去投稿なし'}\n\n"
                 f"【出力フォーマットと表現の厳格なルール】\n"
                 f"1. 挨拶、タイトル等は一切出力せず、純粋な要約文（2〜3行程度）だけを出力してください。\n"
-                f"2. 読み手が満足感を感じるように、ブログにある内容や言及にはなるべく多く触れてください。\n"
-                f"3. 文章のなかに必ず指定のあだ名（れら、鈴ちゃん、しおんぬ、ケロ、わかにゃ、ゆきちゃん、ゆっぴょん、はなな、もち）を使ってメンバー名を書き入れ、主語を明確にしてください。\n"
-                f"4. メンバーの口調のまま表現する部分は「」書きに、客観的なまとめは「」なしにしてください。\n"
-                f"5. 全体の文字数は必ず70文字以内（厳守）にしてください。\n"
-                f"6. ブログ内の具体的な場所を特定・推測できる情報は絶対に記載禁止です。\n"
-                f"7. 文頭に、メンバーを表す絵文字を入れてください（れら→🦐、鈴ちゃん→🔔、しおんぬ→🎶、ケロ→🐸、ゆきちゃん→❄、わかにゃ→🍞、ゆっぴょん→🐰、はなな→🌼、もち→🎨）。"
+                f"2. 読み手が満足感を感じるように、ブログにある日常の出来事や感想などの内容にはなるべく多く触れてください。\n"
+                f"3. 【重要】ブログの最後などによくある「ライブ、イベント、バースデーイベント、グッズ、TV出演」などの【告知情報・お知らせ】は絶対に要約に含めず、完全に無視してください。\n"
+                f"4. 文章のなかに必ず指定のあだ名（れら、鈴ちゃん、しおんぬ、ケロ、わかにゃ、ゆきちゃん、ゆっぴょん、はなな、もち）を使ってメンバー名を書き入れ、主語を明確にしてください。\n"
+                f"5. メンバーの口調のまま表現する部分は「」書きに、客観的なまとめは「」なしにしてください。\n"
+                f"6. 全体の文字数は必ず70文字以内（厳守）にしてください。\n"
+                f"7. ブログ内の具体的な場所を特定・推測できる情報は絶対に記載禁止です。\n"
+                f"8. 文頭に、メンバーを表す絵文字を入れてください（れら→🦐、鈴ちゃん→🔔、しおんぬ→🎶、ケロ→🐸、ゆきちゃん→❄、わかにゃ→🍞、ゆっぴょん→🐰、はなな→🌼、もち→🎨）。"
             )
             
             contents = [prompt_text]
 
-            # 変換後の「本物の1枚目の画像」をGeminiに渡す
+            # 1枚目の画像はGeminiの認識用にセット
             if corrected_img_urls:
                 try:
                     req = urllib.request.Request(corrected_img_urls[0], headers={'User-Agent': 'Mozilla/5.0'})
@@ -258,7 +229,7 @@ def main():
                 print(f"X用画像アップロード失敗 ({img_url}): {img_err}")
 
         summary_text = "\n\n".join(processed_tweets_data)
-        time_str = start_window.strftime('%Y/%m/%d')
+        time_str = start_of_yesterday.strftime('%Y/%m/%d')
         final_tweet = f"#アンジュルムブログ定期便🪽\n{time_str} ※忙しい人向けブログ要約です👍\n\n{summary_text}"
         
         print("\n[本番投稿内容の確認]")
@@ -282,8 +253,7 @@ def main():
         send_line_message(line_message, image_urls=selected_images)
         
     else:
-        print("対象期間内に新しいブログ投稿がRSSに存在しなかったため、処理をスキップしました。")
+        print("対象期間（前日）内に新しいブログ投稿がRSSに存在しなかったため、処理をスキップしました。")
 
 if __name__ == "__main__":
     main()
-
