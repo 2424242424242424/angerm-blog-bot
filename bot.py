@@ -58,11 +58,14 @@ def main():
     # 2. 基準時刻の設定 (JST基準)
     jst = timezone(timedelta(hours=9))
     now = datetime.now(jst)
-    # 本番運用：過去24時間以内の新着記事を判定
-    one_day_ago = now - timedelta(days=1)
+    
+    # 【修正】昨日の日付の 00:00:00 〜 23:59:59 の範囲を作成
+    yesterday = now - timedelta(days=1)
+    start_of_yesterday = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_of_yesterday = yesterday.replace(hour=23, minute=59, second=59, microsecond=0)
     
     print(f"現在時刻: {now.strftime('%Y-%m-%d %H:%M:%S')} (JST)")
-    print("【本番モード】過去24時間の新着記事を対象に要約を作成し、Xに自動投稿します。\n")
+    print(f"【本番モード】対象期間: {start_of_yesterday.strftime('%Y-%m-%d %H:%M:%S')} 〜 {end_of_yesterday.strftime('%Y-%m-%d %H:%M:%S')} の記事を対象にします。\n")
 
     client_gemini = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
@@ -90,10 +93,11 @@ def main():
 
     tweet_lines = []
 
-    # 3. 各記事をループ（新着記事を特定）
+    # 3. 各記事をループ（【修正】昨日の記事だけを特定）
     for post in all_posts:
-        if post["pub_date"] >= one_day_ago:
+        if start_of_yesterday <= post["pub_date"] <= end_of_yesterday:
             current_theme = post["theme"]
+
             
             # 4. 同じメンバー（テーマ）の直近の过去記事をコンテキストとして抽出
             past_context = ""
