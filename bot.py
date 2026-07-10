@@ -1,11 +1,51 @@
 import os
 import urllib.request
+import urllib.parse
+import json  # 追加：LINEにデータを送るために使用
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from google import genai
 from google.genai import types
 import tweepy
+
+def send_line_message(message):
+    """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る"""
+    channel_access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+    user_id = os.environ.get("LINE_USER_ID")
+    
+    if not channel_access_token or not user_id:
+        print("LINEの認証情報が設定されていないため、LINE通知をスキップします。")
+        return
+
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {channel_access_token}"
+    }
+    
+    # 送信するメッセージの組み立て
+    payload = {
+        "to": user_id,
+        "messages": [
+            {
+                "type": "text",
+                "text": message
+            }
+        ]
+    }
+    
+    data = json.dumps(payload).encode("utf-8")
+    
+    try:
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req) as res:
+            if res.getcode() == 200:
+                print("LINEへの通知が正常に成功しました！")
+            else:
+                print(f"LINE通知に失敗しました。ステータスコード: {res.getcode()}")
+    except Exception as e:
+        print(f"LINE通知エラー: {e}")
 
 def main():
     # 1. RSSからすべての記事を取得
@@ -94,7 +134,7 @@ def main():
                 f"4. メンバーの口調のまま表現する部分は「」書きで直接表現に、客観的にまとめた文章は「」なしの間接表現にしてください。また、間接表現はブログの雰囲気に合わせてファニーやエモーションな表現にしてください。\n"
                 f"5. 要約全体の文頭や文末に「」や『』、丸括弧などの記号は絶対に付けないでください。文章だけで開始してください。\n"
                 f"6. 全体の文字数は必ず70文字以内（厳守）にしてください。\n"
-                f"7. 【厳禁】ブログ内の具体的な場所（聖地や撮影場所など）を特定・推測できる情報は絶対に記載禁止です。"
+                f"7. 【厳禁】ブログ内の具体的な場所（聖地や撮影場所など）を特定・推測できる情報は絶対に記載禁止です。\n"
                 f"8. 段落の頭に、メンバーを表す絵文字を入れてください。れら→🦐、鈴ちゃん→🔔、しおんぬ→🎶、ケロ→🐸、ゆきちゃん→❄、わかにゃ→🍞、ゆっぴょん→🐰、はなな→🌼、もち→🎨"
             )
             contents.append(prompt_text)
@@ -125,12 +165,10 @@ def main():
     if tweet_lines:
         summary_text = "\n\n".join(tweet_lines)
         
-        # --- 定期実行日の前日の日付を動的に生成してヘッダーに追加 ---
         yesterday = now - timedelta(days=1)
         time_str = yesterday.strftime('%Y/%m/%d')
         
         final_tweet = f"#アンジュルムブログ定期便🪽\n{time_str} ※忙しい人向けブログ要約です👍\n\n{summary_text}"
-        # -----------------------------------------------------
         
         print("\n[本番投稿内容の確認]")
         print(final_tweet)
@@ -146,6 +184,11 @@ def main():
             print("X（Twitter）への本番投稿が正常に成功しました！")
         except Exception as e:
             print(f"X（Twitter）投稿エラー: {e}")
+            
+        # 【追加】Xへの投稿が動いた後、同じ内容をLINEにも通知する
+        line_message = f"\n【X投稿内容】\n{final_tweet}"
+        send_line_message(line_message)
+        
     else:
         print("過去24時間以内に新しいブログ投稿はなかったため、投稿をスキップしました。")
 
