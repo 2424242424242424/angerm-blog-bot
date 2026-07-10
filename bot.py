@@ -125,8 +125,10 @@ def main():
     if tweet_lines:
         summary_text = "\n\n".join(tweet_lines)
         
-        # --- 変更箇所: 取得時刻を動的に生成してヘッダーに追加 ---
-        time_str = now.strftime('%Y/%m/%d %H:%M時点')
+        # --- 定期実行日の前日の日付を動的に生成してヘッダーに追加 ---
+        yesterday = now - timedelta(days=1)
+        time_str = yesterday.strftime('%Y/%m/%d')
+        
         final_tweet = f"#アンジュルムブログ定期便🪽\n{time_str} ※忙しい人向けブログ要約です👍\n\n{summary_text}"
         # -----------------------------------------------------
         
