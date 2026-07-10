@@ -8,8 +8,6 @@ import random
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
-from io import BytesIO  # 追加
-from PIL import Image, ImageDraw  # 追加
 from google import genai
 from google.genai import types
 import tweepy
@@ -111,12 +109,14 @@ def main():
         })
 
     processed_tweets_data = []
+    # 画像選定のための情報保持用リスト
     extracted_images_info = []
 
     # ==========================================
     # 処理①：対象ブログをスキャンして要約と画像を抽出
     # ==========================================
     for post in all_posts:
+        # 【重要】必ず前日期間内の記事のみを対象にする
         if start_of_yesterday <= post["pub_date"] <= end_of_yesterday:
             current_theme = post["theme"] if post["theme"] else "不明"
             print(f"【判定一致】処理を開始します: {current_theme} - {post['title']}")
@@ -130,6 +130,7 @@ def main():
                     if context_count > 3:
                         break
 
+            # 文字列から直接アメブロ画像URLをすべて抽出
             corrected_img_urls = []
             raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', post["description"])
             
@@ -142,12 +143,14 @@ def main():
 
             print(f" -> 抽出された有効な写真（全枚数）: {len(corrected_img_urls)}枚")
 
+            # 【修正】対象期間内の記事の画像のみを分類して蓄積
             for idx, url in enumerate(corrected_img_urls):
                 if idx == 0:
                     extracted_images_info.append({"theme": current_theme, "type": "first", "url": url})
                 else:
                     extracted_images_info.append({"theme": current_theme, "type": "sub", "url": url})
 
+            # Geminiプロンプトの組み立て
             prompt_text = (
                 f"あなたはアンジュルムの熱心なファンであり、優秀な広報アシスタントです。\n"
                 f"指定のフォーマットの【超要約】を1つだけ作成してください。\n\n"
@@ -193,6 +196,7 @@ def main():
     selected_images_objects = []
     
     if processed_tweets_data:
+        # 1. まずベースとして、対象ブログの「2枚目以降の画像（sub）」を取得
         sub_images = [img for img in extracted_images_info if img["type"] == "sub"]
         
         random.shuffle(sub_images)
@@ -201,15 +205,19 @@ def main():
                 if img["url"] not in [x["url"] for x in selected_images_objects]:
                     selected_images_objects.append(img)
 
+        # 2. 4枚に満たない場合、1枚目の画像（first）から補填
         if len(selected_images_objects) < 4:
             print(f"-> 2枚目以降の画像だけでは{len(selected_images_objects)}枚のため、1枚目の画像から補填を行います。")
             first_images = [img for img in extracted_images_info if img["type"] == "first"]
             
+            # すでに選ばれているメンバー（テーマ）のリスト
             already_chosen_themes = set([img["theme"] for img in selected_images_objects])
             
+            # 優先度A: 「まだ写真（2枚目以降）が1枚も選ばれていないメンバー」の1枚目
             priority_a = [img for img in first_images if img["theme"] not in already_chosen_themes]
             random.shuffle(priority_a)
             
+            # 優先度B: 「すでに選ばれているメンバー」の1枚目
             priority_b = [img for img in first_images if img["theme"] in already_chosen_themes]
             random.shuffle(priority_b)
             
@@ -225,7 +233,7 @@ def main():
         print(f"最終投稿写真（合計 {len(final_image_urls)} 枚）が確定しました。")
 
         # ==========================================
-        # 処理③：一括でXとLINEに投稿（画像ノイズ加工処理を含む）
+        # 処理③：一括でXとLINEに投稿
         # ==========================================
         auth = tweepy.OAuth1UserHandler(
             os.environ.get("TWITTER_API_KEY"),
@@ -251,39 +259,10 @@ def main():
                 req = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
                 img_data = urllib.request.urlopen(req).read()
                 
-                # --- [ディープフェイク対策加工ロジック] ---
-                # 1. 画像をPillowで開いてアルファチャンネル付きに変換
-                img = Image.open(BytesIO(img_data)).convert("RGBA")
-                width, height = img.size
-                
-                # 2. 重ね合わせ用の半透明レイヤーを作成
-                overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-                draw = ImageDraw.Draw(overlay)
-                
-                # 対策A: 細い半透明の格子状の線を引く（AIの輪郭・陰影抽出を破壊する）
-                grid_size = 40                 # 格子のサイズ（ピクセル）
-                line_color = (255, 255, 255, 40) # 白(RGB), 透明度40 (15%程度のうっすら感)
-                
-                for x in range(0, width, grid_size):
-                    draw.line([(x, 0), (x, height)], fill=line_color, width=1)
-                for y in range(0, height, grid_size):
-                    draw.line([(0, y), (width, y)], fill=line_color, width=1)
-                
-                # 対策B: テキストノイズを全体に散りばめる
-                text_color = (255, 255, 255, 30) # かなり薄い白
-                for x in range(0, width, 150):
-                    for y in range(0, height, 150):
-                        draw.text((x, y), "ANGERME_SUMMARY", fill=text_color)
-                
-                # 3. 元画像とレイヤーを合成して、通常のRGB画像（JPG用）に戻す
-                protected_img = Image.alpha_composite(img, overlay).convert("RGB")
-                
-                # 4. 一時ファイルへ高画質で保存
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-                protected_img.save(temp_file.name, format="JPEG", quality=90)
+                temp_file.write(img_data)
                 temp_file.close()
                 temp_files.append(temp_file.name)
-                # --- [ディープフェイク対策加工ロジック終了] ---
                 
                 media = api_v1.media_upload(filename=temp_file.name)
                 media_ids.append(media.media_id_string)
@@ -293,6 +272,7 @@ def main():
         summary_text = "\n\n".join(processed_tweets_data)
         time_str = start_of_yesterday.strftime('%Y/%m/%d')
         
+        # 【修正】個人のリンクではなく、一覧ページのみを出力
         final_tweet = (
             f"#アンジュルムブログ定期便🪽\n"
             f"{time_str} ※忙しい人向けブログ要約です👍\n\n"
@@ -325,3 +305,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
