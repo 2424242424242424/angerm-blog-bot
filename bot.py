@@ -76,7 +76,7 @@ def main():
     jst = timezone(timedelta(hours=9))
     now = datetime.now(jst)
     
-    # 【修正】対象期間を実行日の「前日（00:00:00 〜 23:59:59）」に厳格化
+    # 対象期間を実行日の「前日（00:00:00 〜 23:59:59）」に固定
     yesterday = now - timedelta(days=1)
     start_of_yesterday = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_yesterday = yesterday.replace(hour=23, minute=59, second=59, microsecond=0)
@@ -113,7 +113,6 @@ def main():
     # 処理①：対象ブログをスキャンして要約と画像を抽出
     # ==========================================
     for post in all_posts:
-        # 前日（昨日）の投稿のみを対象とする
         if start_of_yesterday <= post["pub_date"] <= end_of_yesterday:
             current_theme = post["theme"]
             print(f"【判定一致】処理を開始します: {current_theme} - {post['title']}")
@@ -127,20 +126,23 @@ def main():
                     if context_count > 3:
                         break
 
-            # 【修正】アメブロの画像URL（stat.ameba.jp）を確実に、重複なく抽出する正規表現
+            # 文字列から直接アメブロ画像URLをすべて抽出するロジック
             corrected_img_urls = []
-            raw_img_matches = re.findall(r'src=["\'](https?://stat\.ameba\.jp/user_images/[^"\']+)["\']', post["description"])
+            raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', post["description"])
             
             for url in raw_img_matches:
-                # スタンプや絵文字などのアイコンは除外
-                if "charimages" in url or "blog_import" in url or url.endswith(".gif"):
+                # URL末尾のクォーテーションやタグのゴミを除去
+                url = url.split('"')[0].split("'")[0].split('>')[0]
+                
+                # スタンプや共通アイコン画像は除外
+                if "charimages" in url or "blog_import" in url or url.lower().endswith(".gif"):
                     continue
                 if url not in corrected_img_urls:
                     corrected_img_urls.append(url)
 
             print(f" -> 抽出された有効な写真（全枚数）: {len(corrected_img_urls)}枚")
 
-            # 1枚しかない場合はプールしない（添付しない）。2枚目以降がある場合のみ蓄積
+            # 1枚しかない場合はプールしない。2枚目以降がある場合のみ蓄積
             if len(corrected_img_urls) > 1:
                 pool_images.extend(corrected_img_urls[1:])
 
@@ -154,18 +156,18 @@ def main():
                 f"■ 直近の過去記事の文脈:\n{past_context if past_context else '直近に過去投稿なし'}\n\n"
                 f"【出力フォーマットと表現の厳格なルール】\n"
                 f"1. 挨拶、タイトル等は一切出力せず、純粋な要約文（2〜3行程度）だけを出力してください。\n"
-                f"2. 読み手が満足感を感じるように、ブログにある日常の出来事や感想などの内容にはなるべく多く触れてください。\n"
-                f"3. 【重要】ブログの最後などによくある「ライブ、イベント、バースデーイベント、グッズ、TV出演」などの【告知情報・お知らせ】は絶対に要約に含めず、完全に無視してください。\n"
+                f"2. ブログにある日常の出来事や感想などの内容を拾って構成してください。\n"
+                f"3. 【最重要】ブログの最後によくある「ライブ、イベント、バースデーイベント、グッズ、TV・ラジオ出演」などの【告知情報・お知らせ】は要約に絶対に含めず、完全に無視してください。\n"
                 f"4. 文章のなかに必ず指定のあだ名（れら、鈴ちゃん、しおんぬ、ケロ、わかにゃ、ゆきちゃん、ゆっぴょん、はなな、もち）を使ってメンバー名を書き入れ、主語を明確にしてください。\n"
                 f"5. メンバーの口調のまま表現する部分は「」書きに、客観的なまとめは「」なしにしてください。\n"
-                f"6. 全体の文字数は必ず70文字以内（厳守）にしてください。\n"
+                f"6. 【厳守】1人あたりの要約の全体の文字数は、必ず70文字以内（厳守）にしてください。\n"
                 f"7. ブログ内の具体的な場所を特定・推測できる情報は絶対に記載禁止です。\n"
                 f"8. 文頭に、メンバーを表す絵文字を入れてください（れら→🦐、鈴ちゃん→🔔、しおんぬ→🎶、ケロ→🐸、ゆきちゃん→❄、わかにゃ→🍞、ゆっぴょん→🐰、はなな→🌼、もち→🎨）。"
             )
             
             contents = [prompt_text]
 
-            # 1枚目の画像はGeminiの認識用にセット
+            # 1枚目の画像データをGeminiへ入力
             if corrected_img_urls:
                 try:
                     req = urllib.request.Request(corrected_img_urls[0], headers={'User-Agent': 'Mozilla/5.0'})
