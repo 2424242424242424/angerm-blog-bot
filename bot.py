@@ -106,12 +106,11 @@ def main():
             "pub_date": pub_date
         })
 
-    # データ蓄積用の変数（ループの外側で定義）
     processed_tweets_data = []
-    pool_images = []  # ランダム配信用：全メンバーの2枚目以降の写真を溜めるプール
+    pool_images = []  # ランダム配信用全体の画像プール
 
     # ==========================================
-    # 処理①：まず対象のブログをすべてスキャンして要約と画像を「完全に抽出」しきる
+    # 処理①：対象ブログをスキャンして要約と画像を完全に抽出
     # ==========================================
     for post in all_posts:
         if start_of_yesterday <= post["pub_date"] <= end_of_yesterday:
@@ -127,11 +126,12 @@ def main():
                     if context_count > 3:
                         break
 
-            # 本文から「アメブロの写真画像(stat.ameba.jp)」のみを正確に抽出
-            img_urls = re.findall(r'<img[^>]+src=["\']([^"\']*(?:stat\.ameba\.jp)[^"\']+)["\']', post["description"])
+            # 【修正】正規表現を改良：URLの中に 「stat.ameba.jp」 が含まれているものを確実に引き抜く
+            img_urls = re.findall(r'<img[^>]+src=["\']([^"\']*stat\.ameba\.jp[^"\']+)["\']', post["description"])
             
             corrected_img_urls = []
             for url in img_urls:
+                # URLが「//stat.ameba.jp」から始まっている場合は「https:」を補完
                 if url.startswith("//"):
                     url = "https:" + url
                 corrected_img_urls.append(url)
@@ -181,12 +181,12 @@ def main():
                 print(f"Gemini APIエラー: {e}")
 
     # ==========================================
-    # 処理②：すべてのスキャンが完全に終わった後、一括でXとLINEに投稿
+    # 処理②：すべて終わった後、一括でXとLINEに投稿
     # ==========================================
     if processed_tweets_data:
         # 1. 溜まった画像プールから最大4枚をランダムに確定（重複なし）
         selected_images = random.sample(pool_images, min(len(pool_images), 4)) if pool_images else []
-        print(f"ランダム選出された画像枚数: {len(selected_images)}枚")
+        print(f"確定したランダム画像プール数: {len(pool_images)}枚 -> 選択された数: {len(selected_images)}枚")
 
         # X（Twitter）の認証
         auth = tweepy.OAuth1UserHandler(
@@ -207,7 +207,7 @@ def main():
         media_ids = []
         temp_files = []
 
-        # 選ばれた画像をローカルに一時ダウンロードしてXのMedia（v1.1）にアップロード
+        # 選ばれた画像をローカルに一時ダウンロードしてXにアップロード
         for idx, img_url in enumerate(selected_images):
             try:
                 print(f"X用画像ダウンロード中 ({idx+1}/{len(selected_images)}): {img_url}")
@@ -223,7 +223,7 @@ def main():
             except Exception as img_err:
                 print(f"X用画像アップロード失敗 ({img_url}): {img_err}")
 
-        # ツイート本文の構築（全メンバーの要約をここで初めて結合）
+        # ツイート本文の構築
         summary_text = "\n\n".join(processed_tweets_data)
         time_str = yesterday.strftime('%Y/%m/%d')
         final_tweet = f"#アンジュルムブログ定期便🪽\n{time_str} ※忙しい人向けブログ要約です👍\n\n{summary_text}"
@@ -237,12 +237,12 @@ def main():
                 client_x.create_tweet(text=final_tweet, media_ids=media_ids)
             else:
                 client_x.create_tweet(text=final_tweet)
-            print("X（Twitter）への画像付き本番投稿が正常に成功しました！")
+            print("X（Twitter）への本番投稿が正常に成功しました！")
             
         except Exception as e:
             print(f"X（Twitter）投稿エラー: {e}")
         finally:
-            # 作成した一時ファイルを安全に削除（クリーンアップ）
+            # 一時ファイルのクリーンアップ
             for path in temp_files:
                 if os.path.exists(path):
                     os.remove(path)
