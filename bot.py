@@ -109,8 +109,6 @@ def main():
         })
 
     processed_tweets_data = []
-    blog_links = []
-
     # 画像選定のための情報保持用リスト
     extracted_images_info = []
 
@@ -118,11 +116,10 @@ def main():
     # 処理①：対象ブログをスキャンして要約と画像を抽出
     # ==========================================
     for post in all_posts:
+        # 【重要】必ず前日期間内の記事のみを対象にする
         if start_of_yesterday <= post["pub_date"] <= end_of_yesterday:
             current_theme = post["theme"] if post["theme"] else "不明"
             print(f"【判定一致】処理を開始します: {current_theme} - {post['title']}")
-
-            blog_links.append(f"🔗 {current_theme}: {post['link_url']}")
 
             past_context = ""
             context_count = 1
@@ -146,7 +143,7 @@ def main():
 
             print(f" -> 抽出された有効な写真（全枚数）: {len(corrected_img_urls)}枚")
 
-            # 画像情報を分類して蓄積
+            # 【修正】対象期間内の記事の画像のみを分類して蓄積
             for idx, url in enumerate(corrected_img_urls):
                 if idx == 0:
                     extracted_images_info.append({"theme": current_theme, "type": "first", "url": url})
@@ -169,7 +166,7 @@ def main():
                 f"5. メンバーの口調のまま表現する部分は「」書きに、客観的なまとめは「」なしにしてください。\n"
                 f"6. 【厳守】1人あたりの要約の全体の文字数は、必ず70文字以内（厳守）にしてください。\n"
                 f"7. ブログ内の具体的な場所を特定・推測できる情報は絶対に記載禁止です。\n"
-                f"8. 文頭に, メンバーを表す絵文字を入れてください（れら→🦐、鈴ちゃん→🔔、しおんぬ→🎶、ケロ→🐸、ゆきちゃん→❄、わかにゃ→🍞、ゆっぴょん→🐰、はなな→🌼、もち→🎨）。"
+                f"8. 文頭に、メンバーを表す絵文字を入れてください（れら→🦐、鈴ちゃん→🔔、しおんぬ→🎶、ケロ→🐸、ゆきちゃん→❄、わかにゃ→🍞、ゆっぴょん→🐰、はなな→🌼、もち→🎨）。"
             )
             
             contents = [prompt_text]
@@ -199,17 +196,16 @@ def main():
     selected_images_objects = []
     
     if processed_tweets_data:
-        # 1. まずベースとして、全ブログの「2枚目以降の画像（sub）」を取得
+        # 1. まずベースとして、対象ブログの「2枚目以降の画像（sub）」を取得
         sub_images = [img for img in extracted_images_info if img["type"] == "sub"]
         
         random.shuffle(sub_images)
         for img in sub_images:
             if len(selected_images_objects) < 4:
-                # URL重複を防ぐ
                 if img["url"] not in [x["url"] for x in selected_images_objects]:
                     selected_images_objects.append(img)
 
-        # 2. 4枚に満たない場合、1枚目の画像（first）から補填する
+        # 2. 4枚に満たない場合、1枚目の画像（first）から補填
         if len(selected_images_objects) < 4:
             print(f"-> 2枚目以降の画像だけでは{len(selected_images_objects)}枚のため、1枚目の画像から補填を行います。")
             first_images = [img for img in extracted_images_info if img["type"] == "first"]
@@ -233,7 +229,6 @@ def main():
                         selected_images_objects.append(img)
                         print(f"   [補填採用] メンバー: {img['theme']} の1枚目の写真を追加しました。")
 
-        # 【修正箇所】オブジェクトのリストから、安全にURL文字列のリストを生成
         final_image_urls = [img["url"] for img in selected_images_objects]
         print(f"最終投稿写真（合計 {len(final_image_urls)} 枚）が確定しました。")
 
@@ -276,13 +271,13 @@ def main():
 
         summary_text = "\n\n".join(processed_tweets_data)
         time_str = start_of_yesterday.strftime('%Y/%m/%d')
-        links_text = "\n".join(blog_links)
         
+        # 【修正】個人のリンクではなく、一覧ページのみを出力
         final_tweet = (
             f"#アンジュルムブログ定期便🪽\n"
             f"{time_str} ※忙しい人向けブログ要約です👍\n\n"
             f"{summary_text}\n\n"
-            f"{links_text}"
+            f"🔗 一覧: https://ameblo.jp/angerme-new/"
         )
         
         print("\n[本番投稿内容の確認]")
@@ -310,4 +305,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
