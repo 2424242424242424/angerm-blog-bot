@@ -90,7 +90,7 @@ def main():
     for item in items:
         title = item.find("title").text
         description = item.find("description").text
-        link_url = item.find("link").text  # 【追加】ブログのURLを取得
+        link_url = item.find("link").text
         category_tag = item.find("category")
         theme = category_tag.text if category_tag is not None else None
         
@@ -109,10 +109,9 @@ def main():
         })
 
     processed_tweets_data = []
-    blog_links = []  # ブログのリンク保持用
+    blog_links = []
 
-    # 画像選定のための情報保持用構造
-    # [{ "theme": "...", "type": "first" or "sub", "url": "..." }]
+    # 画像選定のための情報保持用リスト
     extracted_images_info = []
 
     # ==========================================
@@ -123,7 +122,6 @@ def main():
             current_theme = post["theme"] if post["theme"] else "不明"
             print(f"【判定一致】処理を開始します: {current_theme} - {post['title']}")
 
-            # ブログのリンクを保持
             blog_links.append(f"🔗 {current_theme}: {post['link_url']}")
 
             past_context = ""
@@ -171,15 +169,145 @@ def main():
                 f"5. メンバーの口調のまま表現する部分は「」書きに、客観的なまとめは「」なしにしてください。\n"
                 f"6. 【厳守】1人あたりの要約の全体の文字数は、必ず70文字以内（厳守）にしてください。\n"
                 f"7. ブログ内の具体的な場所を特定・推測できる情報は絶対に記載禁止です。\n"
-                f"8. 文頭に、メンバーを表す絵文字を入れてください（れら→🦐、鈴ちゃん→🔔、しおんぬ→🎶、ケロ→🐸、ゆきちゃん→❄、わかにゃ→🍞、ゆっぴょん→🐰、はなな→🌼、もち→🎨）。"
+                f"8. 文頭に, メンバーを表す絵文字を入れてください（れら→🦐、鈴ちゃん→🔔、しおんぬ→🎶、ケロ→🐸、ゆきちゃん→❄、わかにゃ→🍞、ゆっぴょん→🐰、はなな→🌼、もち→🎨）。"
             )
             
             contents = [prompt_text]
 
-            # 1枚目の画像データをGeminiへ入力
             if corrected_img_urls:
                 try:
                     req = urllib.request.Request(corrected_img_urls[0], headers={'User-Agent': 'Mozilla/5.0'})
                     img_data = urllib.request.urlopen(req).read()
-                    contents.append(types.Part.from_bytes(data=img_data, mime_type="image/
+                    contents.append(types.Part.from_bytes(data=img_data, mime_type="image/jpeg"))
+                except Exception as e:
+                    print(f"[Gemini用画像読み込み失敗] {e}")
+
+            try:
+                response = client_gemini.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=contents
+                )
+                result_text = response.text.strip()
+                if result_text:
+                    processed_tweets_data.append(result_text)
+            except Exception as e:
+                print(f"Gemini APIエラー: {e}")
+
+    # ==========================================
+    # 処理②：画像の高度な選定ロジック（最大4枚）
+    # ==========================================
+    selected_images_objects = []
+    
+    if processed_tweets_data:
+        # 1. まずベースとして、全ブログの「2枚目以降の画像（sub）」を取得
+        sub_images = [img for img in extracted_images_info if img["type"] == "sub"]
+        
+        random.shuffle(sub_images)
+        for img in sub_images:
+            if len(selected_images_objects) < 4:
+                # URL重複を防ぐ
+                if img["url"] not in [x["url"] for x in selected_images_objects]:
+                    selected_images_objects.append(img)
+
+        # 2. 4枚に満たない場合、1枚目の画像（first）から補填する
+        if len(selected_images_objects) < 4:
+            print(f"-> 2枚目以降の画像だけでは{len(selected_images_objects)}枚のため、1枚目の画像から補填を行います。")
+            first_images = [img for img in extracted_images_info if img["type"] == "first"]
+            
+            # すでに選ばれているメンバー（テーマ）のリスト
+            already_chosen_themes = set([img["theme"] for img in selected_images_objects])
+            
+            # 優先度A: 「まだ写真（2枚目以降）が1枚も選ばれていないメンバー」の1枚目
+            priority_a = [img for img in first_images if img["theme"] not in already_chosen_themes]
+            random.shuffle(priority_a)
+            
+            # 優先度B: 「すでに選ばれているメンバー」の1枚目
+            priority_b = [img for img in first_images if img["theme"] in already_chosen_themes]
+            random.shuffle(priority_b)
+            
+            fill_candidates = priority_a + priority_b
+            
+            for img in fill_candidates:
+                if len(selected_images_objects) < 4:
+                    if img["url"] not in [x["url"] for x in selected_images_objects]:
+                        selected_images_objects.append(img)
+                        print(f"   [補填採用] メンバー: {img['theme']} の1枚目の写真を追加しました。")
+
+        # 【修正箇所】オブジェクトのリストから、安全にURL文字列のリストを生成
+        final_image_urls = [img["url"] for img in selected_images_objects]
+        print(f"最終投稿写真（合計 {len(final_image_urls)} 枚）が確定しました。")
+
+        # ==========================================
+        # 処理③：一括でXとLINEに投稿
+        # ==========================================
+        auth = tweepy.OAuth1UserHandler(
+            os.environ.get("TWITTER_API_KEY"),
+            os.environ.get("TWITTER_API_SECRET"),
+            os.environ.get("TWITTER_ACCESS_TOKEN"),
+            os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
+        )
+        api_v1 = tweepy.API(auth)
+        
+        client_x = tweepy.Client(
+            consumer_key=os.environ.get("TWITTER_API_KEY"),
+            consumer_secret=os.environ.get("TWITTER_API_SECRET"),
+            access_token=os.environ.get("TWITTER_ACCESS_TOKEN"),
+            access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
+        )
+
+        media_ids = []
+        temp_files = []
+
+        for idx, img_url in enumerate(final_image_urls):
+            try:
+                print(f"X用画像ダウンロード中 ({idx+1}/{len(final_image_urls)}): {img_url}")
+                req = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
+                img_data = urllib.request.urlopen(req).read()
+                
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+                temp_file.write(img_data)
+                temp_file.close()
+                temp_files.append(temp_file.name)
+                
+                media = api_v1.media_upload(filename=temp_file.name)
+                media_ids.append(media.media_id_string)
+            except Exception as img_err:
+                print(f"X用画像アップロード失敗 ({img_url}): {img_err}")
+
+        summary_text = "\n\n".join(processed_tweets_data)
+        time_str = start_of_yesterday.strftime('%Y/%m/%d')
+        links_text = "\n".join(blog_links)
+        
+        final_tweet = (
+            f"#アンジュルムブログ定期便🪽\n"
+            f"{time_str} ※忙しい人向けブログ要約です👍\n\n"
+            f"{summary_text}\n\n"
+            f"{links_text}"
+        )
+        
+        print("\n[本番投稿内容の確認]")
+        print(final_tweet)
+        
+        try:
+            if media_ids:
+                client_x.create_tweet(text=final_tweet, media_ids=media_ids)
+            else:
+                client_x.create_tweet(text=final_tweet)
+            print("X（Twitter）への本番投稿が正常に成功しました！")
+            
+        except Exception as e:
+            print(f"X（Twitter）投稿エラー: {e}")
+        finally:
+            for path in temp_files:
+                if os.path.exists(path):
+                    os.remove(path)
+            
+        line_message = f"\n【X投稿内容】\n{final_tweet}"
+        send_line_message(line_message, image_urls=final_image_urls)
+        
+    else:
+        print("対象期間（前日）内に新しいブログ投稿がRSSに存在しなかったため、処理をスキップしました。")
+
+if __name__ == "__main__":
+    main()
 
