@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install google-genai tweepy Pillow
+          pip install google-genai tweepy
 
       # 7つの鍵をバトンタッチ（LINE用の鍵を2つ追加しました）
       - name: Run blog summary bot
