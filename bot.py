@@ -110,7 +110,7 @@ def main():
     pool_images = []  # ランダム配信用全体の画像プール
 
     # ==========================================
-    # 処理①：対象ブログをスキャンして要約と画像を完全に抽出
+    # 処理①：対象ブログをスキャンして要約と画像を抽出
     # ==========================================
     for post in all_posts:
         if start_of_yesterday <= post["pub_date"] <= end_of_yesterday:
@@ -126,17 +126,18 @@ def main():
                     if context_count > 3:
                         break
 
-            # 【修正】正規表現を改良：URLの中に 「stat.ameba.jp」 が含まれているものを確実に引き抜く
-            img_urls = re.findall(r'<img[^>]+src=["\']([^"\']*stat\.ameba\.jp[^"\']+)["\']', post["description"])
+            # 安全にすべての画像URL (src) を一度引き抜く
+            raw_img_srcs = re.findall(r'src=["\']([^"\']+)["\']', post["description"])
             
             corrected_img_urls = []
-            for url in img_urls:
-                # URLが「//stat.ameba.jp」から始まっている場合は「https:」を補完
-                if url.startswith("//"):
-                    url = "https:" + url
-                corrected_img_urls.append(url)
+            for url in raw_img_srcs:
+                # メンバーが投稿した本物の写真（stat.ameba.jp）だけを選別
+                if "stat.ameba.jp" in url:
+                    if url.startswith("//"):
+                        url = "https:" + url
+                    corrected_img_urls.append(url)
 
-            # 「1枚目以外（2枚目以降）」があれば画像プールに追加
+            # 【修正】1枚目しか写真がない場合は添付候補（プール）に入れない。2枚目以降がある場合のみ、2枚目以降をプールに蓄積
             if len(corrected_img_urls) > 1:
                 pool_images.extend(corrected_img_urls[1:])
 
@@ -160,7 +161,7 @@ def main():
             
             contents = [prompt_text]
 
-            # Geminiの認識用に「本物の1枚目の写真」を送る
+            # Geminiの認識用には、従来通り「本物の1枚目の写真」をセット
             if corrected_img_urls:
                 try:
                     img_data = urllib.request.urlopen(corrected_img_urls[0]).read()
@@ -184,9 +185,10 @@ def main():
     # 処理②：すべて終わった後、一括でXとLINEに投稿
     # ==========================================
     if processed_tweets_data:
-        # 1. 溜まった画像プールから最大4枚をランダムに確定（重複なし）
-        selected_images = random.sample(pool_images, min(len(pool_images), 4)) if pool_images else []
-        print(f"確定したランダム画像プール数: {len(pool_images)}枚 -> 選択された数: {len(selected_images)}枚")
+        # 溜まった画像プールから最大4枚をランダムに確定（重複を排除）
+        unique_pool_images = list(set(pool_images))
+        selected_images = random.sample(unique_pool_images, min(len(unique_pool_images), 4)) if unique_pool_images else []
+        print(f"検出された2枚目以降の写真総数: {len(unique_pool_images)}枚 -> ランダム選択された数: {len(selected_images)}枚")
 
         # X（Twitter）の認証
         auth = tweepy.OAuth1UserHandler(
@@ -232,7 +234,7 @@ def main():
         print(final_tweet)
         
         try:
-            # X（Twitter）への本番投稿（画像付き）
+            # X（Twitter）への本番投稿（画像付き、なければテキストのみ）
             if media_ids:
                 client_x.create_tweet(text=final_tweet, media_ids=media_ids)
             else:
