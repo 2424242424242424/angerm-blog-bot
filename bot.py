@@ -1,16 +1,21 @@
 import os
 import urllib.request
 import urllib.parse
-import json  # 追加：LINEにデータを送るために使用
+import json
 import re
 import xml.etree.ElementTree as ET
+import random
+import tempfile
 from datetime import datetime, timedelta, timezone
 from google import genai
 from google.genai import types
 import tweepy
 
-def send_line_message(message):
-    """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る"""
+def send_line_message(message, image_urls=None):
+    """
+    LINE Messaging APIを使って自分のLINEへプッシュ通知を送る。
+    画像がある場合は、テキスト通知の後に画像メッセージも追加で送信する。
+    """
     channel_access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     user_id = os.environ.get("LINE_USER_ID")
     
@@ -24,8 +29,8 @@ def send_line_message(message):
         "Authorization": f"Bearer {channel_access_token}"
     }
     
-    # 送信するメッセージの組み立て
-    payload = {
+    # 1. まずテキストメッセージを送信
+    payload_text = {
         "to": user_id,
         "messages": [
             {
@@ -35,17 +40,41 @@ def send_line_message(message):
         ]
     }
     
-    data = json.dumps(payload).encode("utf-8")
-    
     try:
-        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        data_text = json.dumps(payload_text).encode("utf-8")
+        req = urllib.request.Request(url, data=data_text, headers=headers, method="POST")
         with urllib.request.urlopen(req) as res:
             if res.getcode() == 200:
-                print("LINEへの通知が正常に成功しました！")
+                print("LINEへのテキスト通知が正常に成功しました！")
             else:
-                print(f"LINE通知に失敗しました。ステータスコード: {res.getcode()}")
+                print(f"LINEテキスト通知に失敗しました。ステータスコード: {res.getcode()}")
     except Exception as e:
-        print(f"LINE通知エラー: {e}")
+        print(f"LINEテキスト通知エラー: {e}")
+
+    # 2. 画像が指定されている場合、画像メッセージを1枚ずつ送信
+    if image_urls:
+        for idx, img_url in enumerate(image_urls):
+            # LINEの仕様により、送信する画像URLとプレビュー用URL(同一でも可)が必要
+            payload_image = {
+                "to": user_id,
+                "messages": [
+                    {
+                        "type": "image",
+                        "originalContentUrl": img_url,
+                        "previewImageUrl": img_url
+                    }
+                ]
+            }
+            try:
+                data_image = json.dumps(payload_image).encode("utf-8")
+                req = urllib.request.Request(url, data=data_image, headers=headers, method="POST")
+                with urllib.request.urlopen(req) as res:
+                    if res.getcode() == 200:
+                        print(f"LINEへの画像通知 ({idx+1}/{len(image_urls)}) が成功しました！")
+                    else:
+                        print(f"LINE画像通知に失敗しました。ステータスコード: {res.getcode()}")
+            except Exception as e:
+                print(f"LINE画像通知エラー ({img_url}): {e}")
 
 def main():
     # 1. RSSからすべての記事を取得
@@ -59,7 +88,7 @@ def main():
     jst = timezone(timedelta(hours=9))
     now = datetime.now(jst)
     
-    # 【修正】昨日の日付の 00:00:00 〜 23:59:59 の範囲を作成
+    # 昨日の日付の 00:00:00 〜 23:59:59 の範囲を作成
     yesterday = now - timedelta(days=1)
     start_of_yesterday = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_yesterday = yesterday.replace(hour=23, minute=59, second=59, microsecond=0)
@@ -92,13 +121,13 @@ def main():
         })
 
     tweet_lines = []
+    pool_images = []  # ランダム投稿用に「各記事の2枚目以降の画像」を溜めるリスト
 
-    # 3. 各記事をループ（【修正】昨日の記事だけを特定）
+    # 3. 各記事をループ（昨日の記事だけを特定）
     for post in all_posts:
         if start_of_yesterday <= post["pub_date"] <= end_of_yesterday:
             current_theme = post["theme"]
 
-            
             # 4. 同じメンバー（テーマ）の直近の过去記事をコンテキストとして抽出
             past_context = ""
             context_count = 1
@@ -111,6 +140,14 @@ def main():
 
             # 5. 本文から画像URLを抽出
             img_urls = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', post["description"])
+            
+            # 各ブログの「1枚目以外（2枚目以降）」の画像をランダム用プールに追加
+            if len(img_urls) > 1:
+                for img_url in img_urls[1:]:
+                    if img_url.startswith("//"):
+                        img_url = "https:" + img_url
+                    pool_images.append(img_url)
+
             contents = []
             
             # プロンプトの組み立て
@@ -141,8 +178,10 @@ def main():
                 f"7. 【厳禁】ブログ内の具体的な場所（聖地や撮影場所など）を特定・推測できる情報は絶対に記載禁止です。\n"
                 f"8. 段落の頭に、メンバーを表す絵文字を入れてください。れら→🦐、鈴ちゃん→🔔、しおんぬ→🎶、ケロ→🐸、ゆきちゃん→❄、わかにゃ→🍞、ゆっぴょん→🐰、はなな→🌼、もち→🎨"
             )
+
             contents.append(prompt_text)
 
+            # Geminiの認識用には従来通り1枚目の画像を送る
             if img_urls:
                 target_img = img_urls[0]
                 if target_img.startswith("//"):
@@ -177,21 +216,64 @@ def main():
         print("\n[本番投稿内容の確認]")
         print(final_tweet)
         
+        # --- プールのなかから最大4枚をランダム抽出 ---
+        media_ids = []
+        temp_files = []
+        
+        selected_images = random.sample(pool_images, min(len(pool_images), 4)) if pool_images else []
+        
         try:
+            # X（Twitter）の画像アップロード認証
+            auth = tweepy.OAuth1UserHandler(
+                os.environ.get("TWITTER_API_KEY"),
+                os.environ.get("TWITTER_API_SECRET"),
+                os.environ.get("TWITTER_ACCESS_TOKEN"),
+                os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
+            )
+            api_v1 = tweepy.API(auth)
+            
+            # 選ばれた画像をローカルに落としてXにアップロード
+            for idx, img_url in enumerate(selected_images):
+                try:
+                    print(f"画像ダウンロード中 ({idx+1}/4): {img_url}")
+                    img_data = urllib.request.urlopen(img_url).read()
+                    
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+                    temp_file.write(img_data)
+                    temp_file.close()
+                    temp_files.append(temp_file.name)
+                    
+                    media = api_v1.media_upload(filename=temp_file.name)
+                    media_ids.append(media.media_id_string)
+                except Exception as img_err:
+                    print(f"画像処理エラー ({img_url}): {img_err}")
+
+            # X（Twitter）への投稿（v2）
             client_x = tweepy.Client(
                 consumer_key=os.environ.get("TWITTER_API_KEY"),
                 consumer_secret=os.environ.get("TWITTER_API_SECRET"),
                 access_token=os.environ.get("TWITTER_ACCESS_TOKEN"),
                 access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
             )
-            client_x.create_tweet(text=final_tweet)
+            
+            if media_ids:
+                client_x.create_tweet(text=final_tweet, media_ids=media_ids)
+            else:
+                client_x.create_tweet(text=final_tweet)
+                
             print("X（Twitter）への本番投稿が正常に成功しました！")
+            
         except Exception as e:
             print(f"X（Twitter）投稿エラー: {e}")
+        finally:
+            # 作成した一時ファイルを削除してクリーンアップ
+            for path in temp_files:
+                if os.path.exists(path):
+                    os.remove(path)
             
-        # 【追加】Xへの投稿が動いた後、同じ内容をLINEにも通知する
+        # 【修正】Xへの投稿が動いた後、同じ内容と選ばれた画像リストをLINEにも通知する
         line_message = f"\n【X投稿内容】\n{final_tweet}"
-        send_line_message(line_message)
+        send_line_message(line_message, image_urls=selected_images)
         
     else:
         print("過去24時間以内に新しいブログ投稿はなかったため、投稿をスキップしました。")
