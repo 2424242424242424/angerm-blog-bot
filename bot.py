@@ -109,11 +109,10 @@ def main():
         })
 
     processed_tweets_data = []
-    # その日のすべてのブログ写真を順序を維持して格納するリスト
     all_extracted_image_urls = []
 
     # ==========================================
-    # 処理①：対象ブログをスキャンして要約と画像を抽出（元のロジックを復元）
+    # 処理①：対象ブログをスキャンして要約と画像を抽出
     # ==========================================
     for post in all_posts:
         if start_of_yesterday <= post["pub_date"] <= end_of_yesterday:
@@ -129,10 +128,17 @@ def main():
                     if context_count > 3:
                         break
 
+            # --- ★デバッグ追加箇所★ ---
+            print(f"DEBUG: 記事内容の冒頭500文字: {post['description'][:500]}")
+
             # 文字列から直接アメブロ画像URLをすべて抽出
             corrected_img_urls = []
             raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', post["description"])
             
+            # --- ★デバッグ追加箇所★ ---
+            if not raw_img_matches:
+                print(f"DEBUG: 正規表現で画像が見つかりませんでした。パターンを確認してください。")
+
             for url in raw_img_matches:
                 url = url.split('"')[0].split("'")[0].split('>')[0]
                 if "charimages" in url or "blog_import" in url or url.lower().endswith(".gif"):
@@ -142,12 +148,11 @@ def main():
 
             print(f" -> 抽出された有効な写真（全枚数）: {len(corrected_img_urls)}枚")
 
-            # その日の全体画像リストに追加（重複排除）
             for url in corrected_img_urls:
                 if url not in all_extracted_image_urls:
                     all_extracted_image_urls.append(url)
 
-            # Geminiプロンプトの組み立て（最初のプロンプトを完全復元）
+            # Geminiプロンプトの組み立て
             prompt_text = (
                 f"あなたはアンジュルムの熱心なファンであり、優秀な広報アシスタントです。\n"
                 f"指定のフォーマットの【超要約】を1つだけ作成してください。\n\n"
@@ -188,7 +193,7 @@ def main():
                 print(f"Gemini APIエラー: {e}")
 
     # ==========================================
-    # 処理②：一括でXとLINEに投稿（親投稿に写真添付＋5枚目以降は返信）
+    # 処理②：一括でXとLINEに投稿
     # ==========================================
     if processed_tweets_data:
         auth = tweepy.OAuth1UserHandler(
@@ -206,7 +211,6 @@ def main():
             access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
         )
 
-        # 全画像のメディアアップロード処理
         all_media_ids = []
         temp_files = []
 
@@ -230,7 +234,6 @@ def main():
         summary_text = "\n\n".join(processed_tweets_data)
         time_str = start_of_yesterday.strftime('%Y/%m/%d')
         
-        # 最初の投稿本文フォーマットを復元
         final_tweet = (
             f"#アンジュルムブログ定期便🪽\n"
             f"{time_str} ※忙しい人向けブログ要約です👍\n\n"
@@ -243,27 +246,22 @@ def main():
         
         parent_tweet_id = None
         try:
-            # 最初の4枚を親投稿用にする
             parent_media_ids = all_media_ids[:4]
-            
             if parent_media_ids:
                 response_tweet = client_x.create_tweet(text=final_tweet, media_ids=parent_media_ids)
             else:
                 response_tweet = client_x.create_tweet(text=final_tweet)
-                
             parent_tweet_id = response_tweet.data["id"]
-            print(f"X（Twitter）への本番親投稿が正常に成功しました！ (ID: {parent_tweet_id})")
+            print(f"Xへの本番親投稿が成功しました！ (ID: {parent_tweet_id})")
         except Exception as e:
             print(f"X（Twitter）親投稿エラー: {e}")
             return
 
-        # 5枚目以降の画像を4枚ずつにグループ化して返信ツリーにする
         reply_images_groups = [all_media_ids[i:i + 4] for i in range(4, len(all_media_ids), 4)]
         
         if reply_images_groups:
             print(f"\n5枚目以降の写真（計 {len(all_media_ids) - 4} 枚）を {len(reply_images_groups)} 回に分けて返信します。")
             reply_target_id = parent_tweet_id
-            
             for g_idx, media_group in enumerate(reply_images_groups):
                 try:
                     reply_text = f"📸 ブログ写真まとめ ({g_idx + 1}/{len(reply_images_groups)})"
@@ -278,7 +276,6 @@ def main():
                 except Exception as reply_err:
                     print(f"返信ツリー投稿エラー: {reply_err}")
 
-        # クリーンアップ
         for path in temp_files:
             if os.path.exists(path):
                 os.remove(path)
