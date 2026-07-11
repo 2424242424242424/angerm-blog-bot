@@ -128,17 +128,10 @@ def main():
                     if context_count > 3:
                         break
 
-            # --- ★デバッグ追加箇所★ ---
-            print(f"DEBUG: 記事内容の冒頭500文字: {post['description'][:500]}")
-
             # 文字列から直接アメブロ画像URLをすべて抽出
             corrected_img_urls = []
             raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', post["description"])
             
-            # --- ★デバッグ追加箇所★ ---
-            if not raw_img_matches:
-                print(f"DEBUG: 正規表現で画像が見つかりませんでした。パターンを確認してください。")
-
             for url in raw_img_matches:
                 url = url.split('"')[0].split("'")[0].split('>')[0]
                 if "charimages" in url or "blog_import" in url or url.lower().endswith(".gif"):
@@ -246,6 +239,7 @@ def main():
         
         parent_tweet_id = None
         try:
+            # 最初の4枚を親投稿に添付
             parent_media_ids = all_media_ids[:4]
             if parent_media_ids:
                 response_tweet = client_x.create_tweet(text=final_tweet, media_ids=parent_media_ids)
@@ -257,6 +251,7 @@ def main():
             print(f"X（Twitter）親投稿エラー: {e}")
             return
 
+        # 5枚目以降の写真（インデックス4以降）を4枚ずつグループ化して返信
         reply_images_groups = [all_media_ids[i:i + 4] for i in range(4, len(all_media_ids), 4)]
         
         if reply_images_groups:
@@ -288,3 +283,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
