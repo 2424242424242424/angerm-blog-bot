@@ -12,6 +12,9 @@ from google import genai
 from google.genai import types
 import tweepy
 
+# ★テスト設定：ここを True にするとX投稿をスキップし、LINE通知のみ行います
+IS_TEST_MODE = True
+
 def send_line_message(message, image_urls=None):
     """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る"""
     channel_access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
@@ -76,7 +79,6 @@ def main():
     jst = timezone(timedelta(hours=9))
     now = datetime.now(jst)
     
-    # 対象期間を実行日の「前日（00:00:00 〜 23:59:59）」に固定
     yesterday = now - timedelta(days=1)
     start_of_yesterday = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_yesterday = yesterday.replace(hour=23, minute=59, second=59, microsecond=0)
@@ -111,9 +113,6 @@ def main():
     processed_tweets_data = []
     all_extracted_image_urls = []
 
-    # ==========================================
-    # 処理①：対象ブログをスキャンして要約と画像を抽出
-    # ==========================================
     for post in all_posts:
         if start_of_yesterday <= post["pub_date"] <= end_of_yesterday:
             current_theme = post["theme"] if post["theme"] else "不明"
@@ -128,7 +127,6 @@ def main():
                     if context_count > 3:
                         break
 
-            # 文字列から直接アメブロ画像URLをすべて抽出
             corrected_img_urls = []
             raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', post["description"])
             
@@ -139,13 +137,10 @@ def main():
                 if url not in corrected_img_urls:
                     corrected_img_urls.append(url)
 
-            print(f" -> 抽出された有効な写真（全枚数）: {len(corrected_img_urls)}枚")
-
             for url in corrected_img_urls:
                 if url not in all_extracted_image_urls:
                     all_extracted_image_urls.append(url)
 
-            # Geminiプロンプトの組み立て
             prompt_text = (
                 f"あなたはアンジュルムの熱心なファンであり、優秀な広報アシスタントです。\n"
                 f"指定のフォーマットの【超要約】を1つだけ作成してください。\n\n"
@@ -189,41 +184,6 @@ def main():
     # 処理②：一括でXとLINEに投稿
     # ==========================================
     if processed_tweets_data:
-        auth = tweepy.OAuth1UserHandler(
-            os.environ.get("TWITTER_API_KEY"),
-            os.environ.get("TWITTER_API_SECRET"),
-            os.environ.get("TWITTER_ACCESS_TOKEN"),
-            os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
-        )
-        api_v1 = tweepy.API(auth)
-        
-        client_x = tweepy.Client(
-            consumer_key=os.environ.get("TWITTER_API_KEY"),
-            consumer_secret=os.environ.get("TWITTER_API_SECRET"),
-            access_token=os.environ.get("TWITTER_ACCESS_TOKEN"),
-            access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
-        )
-
-        all_media_ids = []
-        temp_files = []
-
-        print(f"\n[画像アップロード開始] 合計 {len(all_extracted_image_urls)} 枚の処理中...")
-        for idx, img_url in enumerate(all_extracted_image_urls):
-            try:
-                req = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
-                img_data = urllib.request.urlopen(req).read()
-                
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-                temp_file.write(img_data)
-                temp_file.close()
-                temp_files.append(temp_file.name)
-                
-                media = api_v1.media_upload(filename=temp_file.name)
-                all_media_ids.append(media.media_id_string)
-                print(f" -> アップロード成功 ({idx+1}/{len(all_extracted_image_urls)}): {img_url}")
-            except Exception as img_err:
-                print(f" -> アップロード失敗 ({img_url}): {img_err}")
-
         summary_text = "\n\n".join(processed_tweets_data)
         time_str = start_of_yesterday.strftime('%Y/%m/%d')
         
@@ -234,48 +194,77 @@ def main():
             f"🔗 一覧: https://ameblo.jp/angerme-new/"
         )
         
-        print("\n[本番親投稿内容の確認]")
+        print("\n[投稿内容の確認]")
         print(final_tweet)
         
-        parent_tweet_id = None
-        try:
-            # 最初の4枚を親投稿に添付
-            parent_media_ids = all_media_ids[:4]
-            if parent_media_ids:
-                response_tweet = client_x.create_tweet(text=final_tweet, media_ids=parent_media_ids)
-            else:
-                response_tweet = client_x.create_tweet(text=final_tweet)
-            parent_tweet_id = response_tweet.data["id"]
-            print(f"Xへの本番親投稿が成功しました！ (ID: {parent_tweet_id})")
-        except Exception as e:
-            print(f"X（Twitter）親投稿エラー: {e}")
-            return
-
-        # 5枚目以降の写真（インデックス4以降）を4枚ずつグループ化して返信
-        reply_images_groups = [all_media_ids[i:i + 4] for i in range(4, len(all_media_ids), 4)]
-        
-        if reply_images_groups:
-            print(f"\n5枚目以降の写真（計 {len(all_media_ids) - 4} 枚）を {len(reply_images_groups)} 回に分けて返信します。")
-            reply_target_id = parent_tweet_id
-            for g_idx, media_group in enumerate(reply_images_groups):
-                try:
-                    reply_text = f"📸 ブログ写真まとめ ({g_idx + 1}/{len(reply_images_groups)})"
-                    res_reply = client_x.create_tweet(
-                        text=reply_text,
-                        media_ids=media_group,
-                        in_reply_to_tweet_id=reply_target_id
-                    )
-                    reply_target_id = res_reply.data["id"]
-                    print(f" -> 返信ツリー {g_idx + 1} 件目の投稿に成功しました。")
-                    time.sleep(2)
-                except Exception as reply_err:
-                    print(f"返信ツリー投稿エラー: {reply_err}")
-
-        for path in temp_files:
-            if os.path.exists(path):
-                os.remove(path)
+        # テストモードでなければX投稿を実行
+        if not IS_TEST_MODE:
+            auth = tweepy.OAuth1UserHandler(
+                os.environ.get("TWITTER_API_KEY"),
+                os.environ.get("TWITTER_API_SECRET"),
+                os.environ.get("TWITTER_ACCESS_TOKEN"),
+                os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
+            )
+            api_v1 = tweepy.API(auth)
             
-        line_message = f"\n【X投稿内容】\n{final_tweet}"
+            client_x = tweepy.Client(
+                consumer_key=os.environ.get("TWITTER_API_KEY"),
+                consumer_secret=os.environ.get("TWITTER_API_SECRET"),
+                access_token=os.environ.get("TWITTER_ACCESS_TOKEN"),
+                access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
+            )
+
+            all_media_ids = []
+            temp_files = []
+
+            print(f"\n[画像アップロード開始] 合計 {len(all_extracted_image_urls)} 枚の処理中...")
+            for idx, img_url in enumerate(all_extracted_image_urls):
+                try:
+                    req = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    img_data = urllib.request.urlopen(req).read()
+                    
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+                    temp_file.write(img_data)
+                    temp_file.close()
+                    temp_files.append(temp_file.name)
+                    
+                    media = api_v1.media_upload(filename=temp_file.name)
+                    all_media_ids.append(media.media_id_string)
+                    print(f" -> アップロード成功 ({idx+1}/{len(all_extracted_image_urls)}): {img_url}")
+                except Exception as img_err:
+                    print(f" -> アップロード失敗 ({img_url}): {img_err}")
+            
+            parent_tweet_id = None
+            try:
+                parent_media_ids = all_media_ids[:4]
+                if parent_media_ids:
+                    response_tweet = client_x.create_tweet(text=final_tweet, media_ids=parent_media_ids)
+                else:
+                    response_tweet = client_x.create_tweet(text=final_tweet)
+                parent_tweet_id = response_tweet.data["id"]
+                print(f"Xへの本番親投稿が成功しました！ (ID: {parent_tweet_id})")
+            except Exception as e:
+                print(f"X（Twitter）親投稿エラー: {e}")
+                return
+
+            reply_images_groups = [all_media_ids[i:i + 4] for i in range(4, len(all_media_ids), 4)]
+            if reply_images_groups:
+                reply_target_id = parent_tweet_id
+                for g_idx, media_group in enumerate(reply_images_groups):
+                    try:
+                        reply_text = f"📸 ブログ写真まとめ ({g_idx + 1}/{len(reply_images_groups)})"
+                        res_reply = client_x.create_tweet(text=reply_text, media_ids=media_group, in_reply_to_tweet_id=reply_target_id)
+                        reply_target_id = res_reply.data["id"]
+                        time.sleep(2)
+                    except Exception as reply_err:
+                        print(f"返信ツリー投稿エラー: {reply_err}")
+
+            for path in temp_files:
+                if os.path.exists(path): os.remove(path)
+        else:
+            print("\n[テストモード] Xへの投稿処理はスキップされました。")
+            
+        line_message = f"\n【X投稿内容（テストモード）】\n{final_tweet}" if IS_TEST_MODE else f"\n【X投稿内容】\n{final_tweet}"
         send_line_message(line_message, image_urls=all_extracted_image_urls)
         
     else:
@@ -283,4 +272,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
