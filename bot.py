@@ -75,30 +75,30 @@ def send_line_message(message, image_urls=None):
         print("\n【DEBUG】[LINE画像送信セクション] image_urls が空またはNoneのためスキップされました。")
 
 def main():
-    # 1. 各グループのRSS URLリスト
+    # 1. 各グループのURLリストを確実に画像が入る「atom.xml」に変更
     rss_urls = {
-        "angerme": "https://rssblog.ameba.jp/angerme-new/rss20.xml",
-        "angerme-ss-shin": "https://rssblog.ameba.jp/angerme-ss-shin/rss20.xml",
-        "morningmusume_15ki": "https://rssblog.ameba.jp/morningmusume15ki/rss20.xml",
-        "morningmusume_16ki": "https://rssblog.ameba.jp/morningmusume16ki/rss20.xml",
-        "morningmusume_10ki": "https://rssblog.ameba.jp/morningmusume-10ki/rss20.xml",
-        "morningmusume_12ki": "https://rssblog.ameba.jp/morningmusume-12ki/rss20.xml",
-        "juicejuice": "https://rssblog.ameba.jp/juicejuice-official/rss20.xml",
-        "inaba-manaka": "https://rssblog.ameba.jp/inaba-manaka/rss20.xml",
-        "tsubaki_factory_old": "https://rssblog.ameba.jp/tsubaki-factory/rss20.xml",
-        "tsubaki_factory_new": "https://rssblog.ameba.jp/tsubaki-factory-new/rss20.xml",
-        "beyooooonds_chicatetsu": "https://rssblog.ameba.jp/beyooooonds-chicatetsu/rss20.xml",
-        "beyooooonds_rfro": "https://rssblog.ameba.jp/beyooooonds-rfro/rss20.xml",
-        "beyooooonds_seasonings": "https://rssblog.ameba.jp/beyooooonds/rss20.xml",
-        "beyooooonds_noname": "https://rssblog.ameba.jp/beyooooonds-blog/rss20.xml",
-        "ocha_norma": "https://rssblog.ameba.jp/ocha-norma/rss20.xml",
-        "rosychronicle": "https://rssblog.ameba.jp/rosychronicle/rss20.xml"
+        "angerme": "https://rssblog.ameba.jp/angerme-new/atom.xml",
+        "angerme-ss-shin": "https://rssblog.ameba.jp/angerme-ss-shin/atom.xml",
+        "morningmusume_15ki": "https://rssblog.ameba.jp/morningmusume15ki/atom.xml",
+        "morningmusume_16ki": "https://rssblog.ameba.jp/morningmusume16ki/atom.xml",
+        "morningmusume_10ki": "https://rssblog.ameba.jp/morningmusume-10ki/atom.xml",
+        "morningmusume_12ki": "https://rssblog.ameba.jp/morningmusume-12ki/atom.xml",
+        "juicejuice": "https://rssblog.ameba.jp/juicejuice-official/atom.xml",
+        "inaba-manaka": "https://rssblog.ameba.jp/inaba-manaka/atom.xml",
+        "tsubaki_factory_old": "https://rssblog.ameba.jp/tsubaki-factory/atom.xml",
+        "tsubaki_factory_new": "https://rssblog.ameba.jp/tsubaki-factory-new/atom.xml",
+        "beyooooonds_chicatetsu": "https://rssblog.ameba.jp/beyooooonds-chicatetsu/atom.xml",
+        "beyooooonds_rfro": "https://rssblog.ameba.jp/beyooooonds-rfro/atom.xml",
+        "beyooooonds_seasonings": "https://rssblog.ameba.jp/beyooooonds/atom.xml",
+        "beyooooonds_noname": "https://rssblog.ameba.jp/beyooooonds-blog/atom.xml",
+        "ocha_norma": "https://rssblog.ameba.jp/ocha-norma/atom.xml",
+        "rosychronicle": "https://rssblog.ameba.jp/rosychronicle/atom.xml"
     }
 
     angerme_keywords = (
         r"アンジュルム|アンジュ|スマイレージ|スマ|"
         r"上國料|かみこ|萌衣|川村|文乃|かわむー|かむ|伊勢|鈴蘭|れいら|れら|れらたん|橋迫|鈴|鈴ちゃん|"
-        r"川名|凜|ケロ|ケロちゃん|為永|幸音|しおんぬ|ため|松本|わかな|わかにゃ|平山|遊季|ゆき|ぺいぺい|ぺい|"
+        r"川名|凜|ケロ|ケロちゃん|為永|幸音|しおんぬ|ため|松本|わかな|わかにゃ|平山|遊季|ゆき|ぺいペイ|ぺい|"
         r"下井谷|幸穂|ゆっぴょん|ゆきほ|後藤|花|はなな|ごっちん|長野|桃羽|もっち|もち|ももは"
     )
     
@@ -119,31 +119,50 @@ def main():
     all_extracted_image_urls = []   
 
     # ==========================================
-    # 処理①：各グループのブログRSSを巡回・スキャン
+    # 処理①：各グループのブログAtomフィードを巡回・スキャン
     # ==========================================
     for group_key, rss_url in rss_urls.items():
-        print(f"【RSSスキャン中】: {group_key}")
+        print(f"【Atomフィードスキャン中】: {group_key}")
         try:
             req_rss = urllib.request.Request(rss_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req_rss) as response:
                 xml_data = response.read()
             root = ET.fromstring(xml_data)
-            items = root.findall(".//item")
+            
+            # Atom形式のネームスペース定義
+            ns = {'atom': 'http://www.w3.org/2005/Atom'}
+            items = root.findall("atom:entry", ns)
         except Exception as e:
-            print(f" -> RSS取得失敗 ({group_key}): {e}")
+            print(f" -> フィード取得失敗 ({group_key}): {e}")
             continue
 
         for item in items:
-            title = item.find("title").text if item.find("title") is not None else ""
-            description = item.find("description").text if item.find("description") is not None else ""
-            link_url = item.find("link").text if item.find("link") is not None else ""
-            category_tag = item.find("category")
-            theme = category_tag.text if category_tag is not None else "不明"
+            title = item.find("atom:title", ns).text if item.find("atom:title", ns) is not None else ""
             
-            pub_date_str = item.find("pubDate").text
+            # 本文(content または summary)の取得
+            content_tag = item.find("atom:content", ns)
+            description = content_tag.text if content_tag is not None else ""
+            if not description:
+                summary_tag = item.find("atom:summary", ns)
+                description = summary_tag.text if summary_tag is not None else ""
+            
+            # リンクURLの取得
+            link_tag = item.find("atom:link[@rel='alternate']", ns)
+            link_url = link_tag.attrib['href'] if link_tag is not None else ""
+            
+            # テーマ(カテゴリ)の取得
+            category_tag = item.find("atom:category", ns)
+            theme = category_tag.attrib['term'] if category_tag is not None and 'term' in category_tag.attrib else "不明"
+            
+            pub_date_str = item.find("atom:published", ns).text if item.find("atom:published", ns) is not None else ""
+            if not pub_date_str:
+                pub_date_str = item.find("atom:updated", ns).text if item.find("atom:updated", ns) is not None else ""
+            
             try:
-                pub_date = datetime.strptime(pub_date_str, "%a, %d %b %Y %H:%M:%S %z")
-            except ValueError:
+                # AtomのISO 8601等、様々な時間表記パターンに柔軟に対応
+                pub_date_str = pub_date_str.replace("Z", "+00:00")
+                pub_date = datetime.fromisoformat(pub_date_str)
+            except Exception:
                 continue
             
             if not (start_of_yesterday <= pub_date <= end_of_yesterday):
@@ -153,23 +172,32 @@ def main():
             if group_key in ["angerme", "angerme-ss-shin"]:
                 print(f" -> 【アンジュルム本日判定一致】: {theme} - {title}")
                 
-                # 画像URLの抽出（デバッグ用に条件を一度広くします）
+                # 【最重要】Atom特有の画像リンクリストからURLを安全に抽出
                 corrected_img_urls = []
-                raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', description)
+                image_links = item.findall("atom:link[@rel='image']", ns)
+                print(f"   【DEBUG】Atomから見つかった画像リンク数: {len(image_links)}")
                 
-                print(f"   【DEBUG】正規表現マッチ数: {len(raw_img_matches)}")
-                for url in raw_img_matches:
-                    # 末尾のゴミ取り処理を確実に実施
-                    url = url.split('"')[0].split("'")[0].split('>')[0].split(' ')[0]
-                    if "charimages" in url or "blog_import" in url:
-                        continue
-                    
-                    http_url = url.replace("https://", "http://")
-                    print(f"   【DEBUG】抽出整形後URL: {http_url}")
-                    
-                    if http_url not in corrected_img_urls:
-                        corrected_img_urls.append(http_url)
+                for img_link in image_links:
+                    url = img_link.attrib.get('href', '')
+                    if url and "stat.ameba.jp" in url:
+                        if "charimages" in url or "blog_import" in url:
+                            continue
+                        http_url = url.replace("https://", "http://")
+                        print(f"   【DEBUG】画像URL抽出成功: {http_url}")
+                        if http_url not in corrected_img_urls:
+                            corrected_img_urls.append(http_url)
                 
+                # 万が一Atomタグから画像が取れなかった場合のセーフティネット（正規表現）
+                if not corrected_img_urls and description:
+                    raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', description)
+                    for url in raw_img_matches:
+                        url = url.split('"')[0].split("'")[0].split('>')[0].split(' ')[0]
+                        if "charimages" in url or "blog_import" in url:
+                            continue
+                        http_url = url.replace("https://", "http://")
+                        if http_url not in corrected_img_urls:
+                            corrected_img_urls.append(http_url)
+
                 for url in corrected_img_urls:
                     if url not in all_extracted_image_urls:
                         all_extracted_image_urls.append(url)
@@ -179,7 +207,7 @@ def main():
                     f"指定のフォーマットの【超要約】を1つだけ作成してください。\n\n"
                     f"■ メンバー名(テーマ): {theme}\n"
                     f"■ 今回のブログタイトル: {title}\n"
-                    f"■ 今回の本文: {description}\n\n"
+                    f"■ 今回の本文: {description[:500]}...\n\n"  # トークン節約とエラー回避のため一部抽出
                     f"【出力フォーマットと表現の厳格なルール】\n"
                     f"1. 挨拶、タイトル等は一切出力せず、純粋な要約文（2〜3行程度）だけを出力してください。\n"
                     f"2. ブログにある日常の出来事や感想などの内容を拾って構成してください。\n"
@@ -203,21 +231,21 @@ def main():
 
                 try:
                     response = client_gemini.models.generate_content(model='gemini-2.5-flash', contents=contents)
-                    result_text = response.text.strip()
+                    result_text = response.text.strip() if response.text else ""
                     if result_text: processed_tweets_data.append(result_text)
                 except Exception as e:
                     print(f"   Gemini APIエラー: {e}")
 
             # --- 他のハロプロブログの場合の処理（アンジュルム言及チェック） ---
             else:
-                if re.search(angerme_keywords, title) or re.search(angerme_keywords, description):
+                if re.search(angerme_keywords, title) or (description and re.search(angerme_keywords, description)):
                     prompt_mention = (
                         f"あなたはハロー！プロジェクトの熱心なファンであり、優秀な広報アシスタントです。\n"
                         f"提供されたブログの文章を解析し、【本物のアンジュルム現役メンバー】または【アンジュルムというグループ】に対する具体的な言及・交流（エピソード、会話、ツーショット等）が含まれている場合のみ、指定のフォーマットで要約を作成してください。\n\n"
                         f"【⚠️重要：アンジュルムの正しいメンバー名とあだ名の知識対応表】\n"
                         f"・長野桃羽 (あだ名: もっち、もち、ももは) ※重要!! もっちは平山遊季や松本わかなのことではありません！\n"
                         f"・上國料萌衣 (かみこ) / 川村文乃 (かわむー、かむ) / 伊勢鈴蘭 (れら、れらたん) / 橋迫鈴 (鈴ちゃん)\n"
-                        r"・川名凜 (ケロ、ケロちゃん) / 為永幸音 (しおんぬ、ため) / 松本わかな (わかにゃ)\n"
+                        f"・川名凜 (ケロ、ケロちゃん) / 為永幸音 (しおんぬ、ため) / 松本わかな (わかにゃ)\n"
                         f"・平山遊季 (ゆきちゃん、ぺい) / 下井谷幸穂 (ゆっぴょん) / 後藤花 (はなな)\n"
                         f"※ 上記以外のメンバー（例：石川、村田、筒井、みゆ、にいな等）はアンジュルムのメンバーではありません。他グループのメンバー同士の会話（例：研修生同期トークなど）は完全に無視し、絶対に抽出しないでください。\n\n"
                         f"【最重要：除外ルール】\n"
@@ -226,7 +254,7 @@ def main():
                         f"■ 投稿者グループ: {group_key}\n"
                         f"■ 投稿者名(テーマ): {theme}\n"
                         f"■ ブログタイトル: {title}\n"
-                        f"■ 本文: {description}\n\n"
+                        f"■ 本文: {description[:400] if description else ''}...\n\n"
                         f"【出力フォーマット・トンマナの厳格なルール】※該当する場合のみ\n"
                         f"1. 挨拶や前置きは一切出力せず、純粋な要約文だけを出力してください。\n"
                         f"2. アンジュルムのメンバーの記述には、必ず上記の【あだ名】（例: もっち、かみこ、わかにゃ等）を使ってください。\n"
@@ -238,7 +266,7 @@ def main():
 
                     try:
                         response = client_gemini.models.generate_content(model='gemini-2.5-flash', contents=[prompt_mention])
-                        result_text = response.text.strip()
+                        result_text = response.text.strip() if response.text else ""
                     except Exception as e:
                         print(f"   Gemini APIエラー(テキスト判定): {e}")
                         result_text = ""
