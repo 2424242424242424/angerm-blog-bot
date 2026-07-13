@@ -13,7 +13,7 @@ from google.genai import types
 import tweepy
 
 # ★テスト設定：ここを True にするとX投稿をスキップし、LINE通知のみ行います
-IS_TEST_MODE = False
+IS_TEST_MODE = True
 
 def send_line_message(message, image_urls=None):
     """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る"""
@@ -150,15 +150,19 @@ def main():
             if group_key in ["angerme", "angerme-ss-shin"]:
                 print(f" -> 【アンジュルム本日判定一致】: {theme} - {title}")
                 
-                # 画像URLの抽出（アンジュ本人の写真は無条件で追加）
+                # 画像URLの抽出と整形（修正：拡張子までを厳密にキャプチャ）
                 corrected_img_urls = []
-                raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', description)
+                raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+? \.(?:jpg|jpeg|png)', description, re.IGNORECASE)
+                
                 for url in raw_img_matches:
-                    url = url.split('"')[0].split("'")[0].split('>')[0]
-                    if "charimages" in url or "blog_import" in url or url.lower().endswith(".gif"):
+                    if "charimages" in url or "blog_import" in url:
                         continue
-                    if url not in corrected_img_urls:
-                        corrected_img_urls.append(url)
+                    
+                    # AmebaのSSL/HTTPS画像バグを回避するため、http:// に一置換
+                    http_url = url.replace("https://", "http://")
+                    
+                    if http_url not in corrected_img_urls:
+                        corrected_img_urls.append(http_url)
                 
                 for url in corrected_img_urls:
                     if url not in all_extracted_image_urls:
@@ -197,7 +201,7 @@ def main():
                 except Exception as e:
                     print(f"   Gemini APIエラー: {e}")
 
-            # --- 他のハロプロブログの場合の処理（アンジュルム言言及チェック） ---
+            # --- 他のハロプロブログの場合の処理（アンジュルム言及チェック） ---
             else:
                 if re.search(angerme_keywords, title) or re.search(angerme_keywords, description):
                     # ★他メン・OGブログの写真は抽出しない（ロジックをスキップ）
@@ -335,3 +339,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
