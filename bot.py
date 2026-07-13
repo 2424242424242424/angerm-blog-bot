@@ -45,35 +45,54 @@ def send_line_message(message, image_urls=None):
     except Exception as e:
         print(f"LINEテキスト通知エラー: {e}")
 
-    # 2. 画像がある場合は最大4枚を別メッセージで送信
+    # 2. 画像がある場合は最大4枚ずつ別メッセージで送信
     if image_urls:
-        for idx, img_url in enumerate(image_urls):
+        # LINEは1回のメッセージでまとめて送れるのは最大5個（ここでは画像4枚ずつに分割）
+        for idx in range(0, len(image_urls), 4):
+            chunk = image_urls[idx:idx+4]
+            messages = []
+            for img_url in chunk:
+                messages.append({
+                    "type": "image",
+                    "originalContentUrl": img_url,
+                    "previewImageUrl": img_url
+                })
             payload_image = {
                 "to": user_id,
-                "messages": [
-                    {
-                        "type": "image",
-                        "originalContentUrl": img_url,
-                        "previewImageUrl": img_url
-                    }
-                ]
+                "messages": messages
             }
             try:
                 data_image = json.dumps(payload_image).encode("utf-8")
                 req = urllib.request.Request(url, data=data_image, headers=headers, method="POST")
                 with urllib.request.urlopen(req) as res:
                     if res.getcode() == 200:
-                        print(f"LINEへの画像通知 ({idx+1}/{len(image_urls)}) が成功しました！")
+                        print(f"LINEへの画像通知 ({idx+1}〜{idx+len(chunk)}枚目) が成功しました！")
             except Exception as e:
                 print(f"LINE画像通知エラー: {e}")
 
 def main():
-    # 1. RSSからすべての記事を取得
-    rss_url = "https://rssblog.ameba.jp/angerme-new/rss20.xml"
-    response = urllib.request.urlopen(rss_url)
-    xml_data = response.read()
-    root = ET.fromstring(xml_data)
-    items = root.findall(".//item")
+    # 1. 各グループのRSS URLリスト（アンジュルムを除くハロー！プロジェクト全体）
+    rss_urls = {
+        "angerme": "https://rssblog.ameba.jp/angerme-new/rss20.xml", # 本作用
+        "morningmusume": "https://rssblog.ameba.jp/morningmusume-9ki/rss20.xml",
+        "morningmusume_15ki": "https://rssblog.ameba.jp/morningmusume15ki/rss20.xml",
+        "juicejuice": "https://rssblog.ameba.jp/juicejuice-official/rss20.xml",
+        "tsubaki_factory": "https://rssblog.ameba.jp/tsubaki-factory/rss20.xml",
+        "beyooooonds": "https://rssblog.ameba.jp/beyooooonds-chicatetsu/rss20.xml",
+        "beyooooonds_rf": "https://rssblog.ameba.jp/beyooooonds-rf/rss20.xml",
+        "beyooooonds_seasonings": "https://rssblog.ameba.jp/beyooooonds/rss20.xml",
+        "ocha_norma": "https://rssblog.ameba.jp/ocha-norma/rss20.xml",
+        "rosychronicle": "https://rssblog.ameba.jp/rosychronicle/rss20.xml"
+    }
+
+    # アンジュルム言及を検知するためのキーワードパターン（本名、苗字、名前、あだ名）
+    # 新メンバー加入や卒業に合わせてここを調整してください
+    angerme_keywords = (
+        r"アンジュルム|スマイレージ|S/mileage|"
+        r"上國料|かみこ|萌衣|川村|文乃|かわむー|伊勢|鈴蘭|れら|れらたん|橋迫|鈴|鈴ちゃん|"
+        r"川名|凜|ケロ|ケロちゃん|為永|幸音|しおんぬ|松本|わかな|わかにゃ|平山|遊季|ゆきちゃん|ぺい|"
+        r"下井谷|幸穂|ゆっぴょん|後藤|花|はなな|風見|結衣|ゆいちゃん|もち"
+    )
     
     # 2. 基準時刻の設定 (JST基準)
     jst = timezone(timedelta(hours=9))
@@ -88,111 +107,165 @@ def main():
 
     client_gemini = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-    all_posts = []
-    for item in items:
-        title = item.find("title").text
-        description = item.find("description").text
-        link_url = item.find("link").text
-        category_tag = item.find("category")
-        theme = category_tag.text if category_tag is not None else None
-        
-        pub_date_str = item.find("pubDate").text
+    processed_tweets_data = []      # アンジュルム本人の要約
+    mention_tweets_data = []        # 他グループからの言及要約
+    all_extracted_image_urls = []   # すべての画像URL（一括アップロード用）
+
+    # ==========================================
+    # 処理①：各グループのブログRSSを巡回・スキャン
+    # ==========================================
+    for group_key, rss_url in rss_urls.items():
+        print(f"【RSSスキャン中】: {group_key}")
         try:
-            pub_date = datetime.strptime(pub_date_str, "%a, %d %b %Y %H:%M:%S %z")
-        except ValueError:
+            req_rss = urllib.request.Request(rss_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_rss) as response:
+                xml_data = response.read()
+            root = ET.fromstring(xml_data)
+            items = root.findall(".//item")
+        except Exception as e:
+            print(f" -> RSS取得失敗 ({group_key}): {e}")
             continue
-        
-        all_posts.append({
-            "theme": theme,
-            "title": title,
-            "description": description,
-            "link_url": link_url,
-            "pub_date": pub_date
-        })
 
-    processed_tweets_data = []
-    all_extracted_image_urls = []
-
-    for post in all_posts:
-        if start_of_yesterday <= post["pub_date"] <= end_of_yesterday:
-            current_theme = post["theme"] if post["theme"] else "不明"
-            print(f"【判定一致】処理を開始します: {current_theme} - {post['title']}")
-
-            past_context = ""
-            context_count = 1
-            for past in all_posts:
-                if post["theme"] and past["theme"] == post["theme"] and past["pub_date"] < post["pub_date"]:
-                    past_context += f"【過去記事】タイトル: {past['title']}\n本文一部: {past['description'][:200]}...\n\n"
-                    context_count += 1
-                    if context_count > 3:
-                        break
-
-            corrected_img_urls = []
-            raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', post["description"])
+        for item in items:
+            title = item.find("title").text if item.find("title") is not None else ""
+            description = item.find("description").text if item.find("description") is not None else ""
+            link_url = item.find("link").text if item.find("link") is not None else ""
+            category_tag = item.find("category")
+            theme = category_tag.text if category_tag is not None else "不明"
             
-            for url in raw_img_matches:
-                url = url.split('"')[0].split("'")[0].split('>')[0]
-                if "charimages" in url or "blog_import" in url or url.lower().endswith(".gif"):
-                    continue
-                if url not in corrected_img_urls:
-                    corrected_img_urls.append(url)
-
-            for url in corrected_img_urls:
-                if url not in all_extracted_image_urls:
-                    all_extracted_image_urls.append(url)
-
-            prompt_text = (
-                f"あなたはアンジュルムの熱心なファンであり、優秀な広報アシスタントです。\n"
-                f"指定のフォーマットの【超要約】を1つだけ作成してください。\n\n"
-                f"■ メンバー名(テーマ): {current_theme}\n"
-                f"■ 今回のブログタイトル: {post['title']}\n"
-                f"■ 今回の本文: {post['description']}\n\n"
-                f"■ 直近の過去記事の文脈:\n{past_context if past_context else '直近に過去投稿なし'}\n\n"
-                f"【出力フォーマットと表現の厳格なルール】\n"
-                f"1. 挨拶、タイトル等は一切出力せず、純粋な要約文（2〜3行程度）だけを出力してください。\n"
-                f"2. ブログにある日常の出来事や感想などの内容を拾って構成してください。\n"
-                f"3. 【最重要】ブログの最後によくある「ライブ、イベント、バースデーイベント、グッズ、TV・ラジオ出演」などの【告知情報・お知らせ】は要約に絶対に含めず、完全に無視してください。\n"
-                f"4. 文章のなかに必ず指定のあだ名（れら、鈴ちゃん、しおんぬ、ケロ、わかにゃ、ゆきちゃん、ゆっぴょん、はなな、もち）を使ってメンバー名を書き入れ、主語を明確にしてください。\n"
-                f"5. メンバーの口調のまま表現する部分は「」書きに、客観的なまとめは「」なしにしてください。\n"
-                f"6. 【厳守】1人あたりの要約の全体の文字数は、必ず70文字以内（厳守）にしてください。\n"
-                f"7. ブログ内の具体的な場所を特定・推測できる情報は絶対に記載禁止です。\n"
-                f"8. 文頭に、メンバーを表す絵文字を入れてください（れら→🦐、鈴ちゃん→🔔、しおんぬ→🎶、ケロ→🐸、ゆきちゃん→❄、わかにゃ→🍞、ゆっぴょん→🐰、はなな→🌼、もち→🎨）。"
-            )
-            
-            contents = [prompt_text]
-
-            if corrected_img_urls:
-                try:
-                    req = urllib.request.Request(corrected_img_urls[0], headers={'User-Agent': 'Mozilla/5.0'})
-                    img_data = urllib.request.urlopen(req).read()
-                    contents.append(types.Part.from_bytes(data=img_data, mime_type="image/jpeg"))
-                except Exception as e:
-                    print(f"[Gemini用画像読み込み失敗] {e}")
-
+            pub_date_str = item.find("pubDate").text
             try:
-                response = client_gemini.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=contents
+                pub_date = datetime.strptime(pub_date_str, "%a, %d %b %Y %H:%M:%S %z")
+            except ValueError:
+                continue
+            
+            # 前日の投稿かどうかの判定
+            if not (start_of_yesterday <= pub_date <= end_of_yesterday):
+                continue
+
+            # --- アンジュルム公式ブログの場合の処理 ---
+            if group_key == "angerme":
+                print(f" -> 【アンジュルム本日判定一致】: {theme} - {title}")
+                
+                # 文字列から直接アメブロ画像URLをすべて抽出
+                corrected_img_urls = []
+                raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', description)
+                for url in raw_img_matches:
+                    url = url.split('"')[0].split("'")[0].split('>')[0]
+                    if "charimages" in url or "blog_import" in url or url.lower().endswith(".gif"):
+                        continue
+                    if url not in corrected_img_urls:
+                        corrected_img_urls.append(url)
+                
+                for url in corrected_img_urls:
+                    if url not in all_extracted_image_urls:
+                        all_extracted_image_urls.append(url)
+
+                prompt_text = (
+                    f"あなたはアンジュルムの熱心なファンであり、優秀な広報アシスタントです。\n"
+                    f"指定のフォーマットの【超要約】を1つだけ作成してください。\n\n"
+                    f"■ メンバー名(テーマ): {theme}\n"
+                    f"■ 今回のブログタイトル: {title}\n"
+                    f"■ 今回の本文: {description}\n\n"
+                    f"【出力フォーマットと表現の厳格なルール】\n"
+                    f"1. 挨拶、タイトル等は一切出力せず、純粋な要約文（2〜3行程度）だけを出力してください。\n"
+                    f"2. ブログにある日常の出来事や感想などの内容を拾って構成してください。\n"
+                    f"3. 【最重要】ブログの最後によくある「ライブ、イベント、バースデーイベント、グッズ、TV・ラジオ出演」などの【告知情報・お知らせ】は要約に絶対に含めず、完全に無視してください。\n"
+                    f"4. 文章のなかに必ず指定のあだ名（れら、鈴ちゃん、しおんぬ、ケロ、わかにゃ、ゆきちゃん、ゆっぴょん、はなな、もち）を使ってメンバー名を書き入れ、主語を明確にしてください。\n"
+                    f"5. メンバーの口調のまま表現する部分は「」書きに、客観的なまとめは「」なしにしてください。\n"
+                    f"6. 【厳守】1人あたりの要約の全体の文字数は、必ず70文字以内（厳守）にしてください。\n"
+                    f"7. ブログ内の具体的な場所を特定・推測できる情報は絶対に記載禁止です。\n"
+                    f"8. 文頭に、メンバーを表す絵文字を入れてください（れら→🦐、鈴ちゃん→🔔、しおんぬ→🎶、ケロ→🐸、ゆきちゃん→❄、わかにゃ→🍞、ゆっぴょん→🐰、はなな→🌼、もち→🎨）。"
                 )
-                result_text = response.text.strip()
-                if result_text:
-                    processed_tweets_data.append(result_text)
-            except Exception as e:
-                print(f"Gemini APIエラー: {e}")
+                
+                contents = [prompt_text]
+                if corrected_img_urls:
+                    try:
+                        req_img = urllib.request.Request(corrected_img_urls[0], headers={'User-Agent': 'Mozilla/5.0'})
+                        img_data = urllib.request.urlopen(req_img).read()
+                        contents.append(types.Part.from_bytes(data=img_data, mime_type="image/jpeg"))
+                    except Exception as e:
+                        print(f"   [Gemini用画像読み込み失敗] {e}")
+
+                try:
+                    response = client_gemini.models.generate_content(model='gemini-2.5-flash', contents=contents)
+                    result_text = response.text.strip()
+                    if result_text: processed_tweets_data.append(result_text)
+                except Exception as e:
+                    print(f"   Gemini APIエラー: {e}")
+
+            # --- 他のハロプロブログの場合の処理（アンジュルム言及チェック） ---
+            else:
+                # タイトルまたは本文にキーワードが含まれるかスキャン
+                if re.search(angerme_keywords, title) or re.search(angerme_keywords, description):
+                    print(f" -> 【他グループ言及検知】[{group_key}] {theme} - {title}")
+                    
+                    # 画像URLの抽出
+                    corrected_img_urls = []
+                    raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', description)
+                    for url in raw_img_matches:
+                        url = url.split('"')[0].split("'")[0].split('>')[0]
+                        if "charimages" in url or "blog_import" in url or url.lower().endswith(".gif"):
+                            continue
+                        if url not in corrected_img_urls:
+                            corrected_img_urls.append(url)
+                    
+                    for url in corrected_img_urls:
+                        if url not in all_extracted_image_urls:
+                            all_extracted_image_urls.append(url)
+
+                    # 他メン言及用のGeminiプロンプト
+                    prompt_mention = (
+                        f"あなたはハロー！プロジェクトの熱心なファンであり、優秀な広報アシスタントです。\n"
+                        f"他グループのメンバーがアンジュルムのメンバーやグループについて言及している部分を抽出し、指定のフォーマットで1つだけ要約を作成してください。\n\n"
+                        f"■ 投稿者グループ: {group_key}\n"
+                        f"■ 投稿者名(テーマ): {theme}\n"
+                        f"■ ブログタイトル: {title}\n"
+                        f"■ 本文: {description}\n\n"
+                        f"【出力フォーマットと表現の厳格なルール】\n"
+                        f"1. 挨拶、タイトル等は一切出力せず、純粋な要約文だけを出力してください。\n"
+                        f"2. 「誰がアンジュルムの誰と何をしていたか、何を話していたか、どんな言及（交流）があったか」を明確にしてください。\n"
+                        f"3. 文章の最後に、ブログのURL（ {link_url} ）を必ず添えてください。\n"
+                        f"4. 【厳守】全体の文字数は、URLを除いて必ず60文字以内（厳守）にしてください。\n"
+                        f"5. 文頭には「💬 [グループ名略称・メンバー名]」という形式を記載してください。(例: 💬 [娘。小田]、💬 [Juice段原] )"
+                    )
+
+                    contents = [prompt_mention]
+                    if corrected_img_urls:
+                        try:
+                            req_img = urllib.request.Request(corrected_img_urls[0], headers={'User-Agent': 'Mozilla/5.0'})
+                            img_data = urllib.request.urlopen(req_img).read()
+                            contents.append(types.Part.from_bytes(data=img_data, mime_type="image/jpeg"))
+                        except Exception as e:
+                            print(f"   [Gemini用画像読み込み失敗] {e}")
+
+                    try:
+                        response = client_gemini.models.generate_content(model='gemini-2.5-flash', contents=contents)
+                        result_text = response.text.strip()
+                        if result_text: mention_tweets_data.append(result_text)
+                    except Exception as e:
+                        print(f"   Gemini APIエラー: {e}")
 
     # ==========================================
     # 処理②：一括でXとLINEに投稿
     # ==========================================
-    if processed_tweets_data:
-        summary_text = "\n\n".join(processed_tweets_data)
+    # 本人、または他メン言及のどちらか片方でもデータがあれば処理を実行
+    if processed_tweets_data or mention_tweets_data:
+        summary_text = "\n\n".join(processed_tweets_data) if processed_tweets_data else "（本日の新規ブログ投稿はありません）"
         time_str = start_of_yesterday.strftime('%Y/%m/%d')
         
+        # 基本の親投稿テキストを構築
         final_tweet = (
             f"#アンジュルムブログ定期便🪽\n"
             f"{time_str} ※忙しい人向けブログ要約です👍\n\n"
             f"{summary_text}\n\n"
             f"🔗 一覧: https://ameblo.jp/angerme-new/"
         )
+        
+        # 他メン言及データがある場合は、下にコーナーとして合流させる
+        if mention_tweets_data:
+            mention_text = "\n\n".join(mention_tweets_data)
+            final_tweet += f"\n\nーーー\n💞他メンからのアンジュ言及・交流情報👇\n\n{mention_text}"
         
         print("\n[投稿内容の確認]")
         print(final_tweet)
@@ -220,8 +293,8 @@ def main():
             print(f"\n[画像アップロード開始] 合計 {len(all_extracted_image_urls)} 枚の処理中...")
             for idx, img_url in enumerate(all_extracted_image_urls):
                 try:
-                    req = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
-                    img_data = urllib.request.urlopen(req).read()
+                    req_img = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    img_data = urllib.request.urlopen(req_img).read()
                     
                     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
                     temp_file.write(img_data)
@@ -247,6 +320,7 @@ def main():
                 print(f"X（Twitter）親投稿エラー: {e}")
                 return
 
+            # アンジュ本人＋他メン抽出画像をすべて含めて、4枚ずつ返信ツリーに繋げる
             reply_images_groups = [all_media_ids[i:i + 4] for i in range(4, len(all_media_ids), 4)]
             if reply_images_groups:
                 reply_target_id = parent_tweet_id
@@ -268,7 +342,7 @@ def main():
         send_line_message(line_message, image_urls=all_extracted_image_urls)
         
     else:
-        print("対象期間（前日）内に新しいブログ投稿がRSSに存在しなかったため、処理をスキップしました。")
+        print("対象期間（前日）内に、アンジュルム公式ブログおよび他グループの言及ブログは存在しませんでした。")
 
 if __name__ == "__main__":
     main()
