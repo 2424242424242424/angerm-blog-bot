@@ -52,11 +52,13 @@ def send_line_message(message, image_urls=None):
             chunk = image_urls[idx:idx+4]
             messages = []
             for img_url in chunk:
-                print(f"【DEBUG】LINEメッセージ格納URL: {img_url}")
+                # 【最重要】LINE Messaging APIの仕様厳守のため、送信時のみ強制的・確実に https:// へ変換
+                secure_url = img_url.replace("http://", "https://")
+                print(f"【DEBUG】LINE送信確定URL(HTTPS化): {secure_url}")
                 messages.append({
                     "type": "image",
-                    "originalContentUrl": img_url,
-                    "previewImageUrl": img_url
+                    "originalContentUrl": secure_url,
+                    "previewImageUrl": secure_url
                 })
             payload_image = {
                 "to": user_id,
@@ -70,7 +72,7 @@ def send_line_message(message, image_urls=None):
                     if res.getcode() == 200:
                         print(f"LINEへの画像通知 ({idx+1}〜{idx+len(chunk)}枚目) が成功しました！")
             except Exception as e:
-                print(f"【DEBUG】LINE画像通知API実行エラー: {e}")
+                print(f"【DEBUG】LINE画像通知API演行エラー: {e}")
     else:
         print("\n【DEBUG】[LINE画像送信セクション] image_urls が空またはNoneのためスキップされました。")
 
@@ -155,7 +157,7 @@ def main():
                 
                 corrected_img_urls = []
                 
-                # 【確実な新ロジック】RSSから画像が消えていれば、ブログの個別記事HTMLを見にいく
+                # 記事HTMLスクレイピング（検証済み・完璧に機能中）
                 if link_url:
                     print(f"   【DEBUG】記事HTMLから直接画像URLを取得します: {link_url}")
                     try:
@@ -163,7 +165,6 @@ def main():
                         with urllib.request.urlopen(req_html) as html_res:
                             html_content = html_res.read().decode('utf-8', errors='ignore')
                         
-                        # HTML内に埋め込まれているオリジナル写真URLを根こそぎ抽出
                         raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>&\?]+', html_content)
                         print(f"   【DEBUG】HTML内から見つかった候補数: {len(raw_img_matches)}")
                         
@@ -174,6 +175,7 @@ def main():
                             if not any(ext in url.lower() for ext in [".jpg", ".jpeg", ".png"]):
                                 continue
                             
+                            # Xダウンロード用に一度 http:// で保持
                             http_url = url.replace("https://", "http://")
                             if http_url not in corrected_img_urls:
                                 print(f"   【DEBUG】画像URL取得成功: {http_url}")
@@ -181,7 +183,6 @@ def main():
                     except Exception as html_err:
                         print(f"   【DEBUG】記事HTMLの直接取得失敗: {html_err}")
 
-                # 万が一上記で取れなかった場合のセーフティとして既存descriptionもスキャン
                 if not corrected_img_urls and description:
                     raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>&\?]+', description)
                     for url in raw_img_matches:
@@ -254,7 +255,7 @@ def main():
                         f"2. アンジュルムのメンバーの記述には、必ず上記の【あだ名】（例: もっち、かみこ、わかにゃ等）を使ってください。\n"
                         f"3. トンマナはアンジュルム本人の要約ルールを厳守してください。メンバーの口調のまま表現する部分は「」書きに、客観的なまとめは「」なしに構成してください。\n"
                         f"4. 文章の最後に、ブログのURL（ {link_url} ）を必ず添えてください。\n"
-                        f"5. 【厳守】全体の文字数は、URLを除いて必ず70文字以内（厳守）にしてください。\n"
+                        f"5. 【厳守】全体の文字数は, URLを除いて必ず70文字以内（厳守）にしてください。\n"
                         f"6. 文頭のグループ名略称のブラケット部分は、必ず指定の6パターン【 娘。、つばき、Juice、OCHA、BEYO、ロージー 】のいずれか、または【 OG 】のみに統一してください。(例: 💬 [娘。小田]、💬 [Juice段原] )"
                     )
 
@@ -291,8 +292,6 @@ def main():
         print(final_tweet)
         
         print(f"\n【DEBUG】[投稿一括処理セクション] 最終的に集まった全画像URL総数: {len(all_extracted_image_urls)}")
-        for idx, u in enumerate(all_extracted_image_urls):
-            print(f"【DEBUG】全画像リスト[{idx}]: {u}")
 
         if not IS_TEST_MODE:
             auth = tweepy.OAuth1UserHandler(
