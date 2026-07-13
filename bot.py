@@ -75,7 +75,7 @@ def send_line_message(message, image_urls=None):
         print("\n【DEBUG】[LINE画像送信セクション] image_urls が空またはNoneのためスキップされました。")
 
 def main():
-    # 1. 解析の確実性を担保するため、URLを元の「rss20.xml」に戻して安定化
+    # 1. 各グループのRSS URLリスト
     rss_urls = {
         "angerme": "https://rssblog.ameba.jp/angerme-new/rss20.xml",
         "angerme-ss-shin": "https://rssblog.ameba.jp/angerme-ss-shin/rss20.xml",
@@ -127,9 +127,6 @@ def main():
             req_rss = urllib.request.Request(rss_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req_rss) as response:
                 xml_raw_bytes = response.read()
-            
-            # 【新アプローチ】XML構造に関係なく、生データ全体から直接画像URLを取得するための文字列変換
-            xml_text_content = xml_raw_bytes.decode('utf-8', errors='ignore')
             root = ET.fromstring(xml_raw_bytes)
             items = root.findall(".//item")
         except Exception as e:
@@ -156,29 +153,44 @@ def main():
             if group_key in ["angerme", "angerme-ss-shin"]:
                 print(f" -> 【アンジュルム本日判定一致】: {theme} - {title}")
                 
-                # 【最強ロジック】descriptionおよびXML全体から強引に画像URLを網羅抽出
                 corrected_img_urls = []
                 
-                # 検索対象をdescriptionだけでなく、XMLソース全体に広げてエスケープされたURLも巻き取る
-                search_pool = description + " " + xml_text_content
-                raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>&\?]+', search_pool)
-                
-                print(f"   【DEBUG】文字列検索マッチ数: {len(raw_img_matches)}")
-                for url in raw_img_matches:
-                    # 分離記号の残骸をクレンジング
-                    url = url.split('"')[0].split("'")[0].split('>')[0].split('<')[0].split(' ')[0]
-                    
-                    if "charimages" in url or "blog_import" in url:
-                        continue
-                    # 拡張子が画像形式（jpg, jpeg, png）を含んでいるか簡易チェック
-                    if not any(ext in url.lower() for ext in [".jpg", ".jpeg", ".png"]):
-                        continue
+                # 【確実な新ロジック】RSSから画像が消えていれば、ブログの個別記事HTMLを見にいく
+                if link_url:
+                    print(f"   【DEBUG】記事HTMLから直接画像URLを取得します: {link_url}")
+                    try:
+                        req_html = urllib.request.Request(link_url, headers={'User-Agent': 'Mozilla/5.0'})
+                        with urllib.request.urlopen(req_html) as html_res:
+                            html_content = html_res.read().decode('utf-8', errors='ignore')
                         
-                    http_url = url.replace("https://", "http://")
-                    print(f"   【DEBUG】画像URL抽出成功: {http_url}")
-                    
-                    if http_url not in corrected_img_urls:
-                        corrected_img_urls.append(http_url)
+                        # HTML内に埋め込まれているオリジナル写真URLを根こそぎ抽出
+                        raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>&\?]+', html_content)
+                        print(f"   【DEBUG】HTML内から見つかった候補数: {len(raw_img_matches)}")
+                        
+                        for url in raw_img_matches:
+                            url = url.split('"')[0].split("'")[0].split('>')[0].split('<')[0].split(' ')[0]
+                            if "charimages" in url or "blog_import" in url:
+                                continue
+                            if not any(ext in url.lower() for ext in [".jpg", ".jpeg", ".png"]):
+                                continue
+                            
+                            http_url = url.replace("https://", "http://")
+                            if http_url not in corrected_img_urls:
+                                print(f"   【DEBUG】画像URL取得成功: {http_url}")
+                                corrected_img_urls.append(http_url)
+                    except Exception as html_err:
+                        print(f"   【DEBUG】記事HTMLの直接取得失敗: {html_err}")
+
+                # 万が一上記で取れなかった場合のセーフティとして既存descriptionもスキャン
+                if not corrected_img_urls and description:
+                    raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>&\?]+', description)
+                    for url in raw_img_matches:
+                        url = url.split('"')[0].split("'")[0].split('>')[0].split('<')[0].split(' ')[0]
+                        if "charimages" in url or "blog_import" in url or not any(ext in url.lower() for ext in [".jpg", ".jpeg", ".png"]):
+                            continue
+                        http_url = url.replace("https://", "http://")
+                        if http_url not in corrected_img_urls:
+                            corrected_img_urls.append(http_url)
                 
                 for url in corrected_img_urls:
                     if url not in all_extracted_image_urls:
@@ -228,7 +240,7 @@ def main():
                         f"・長野桃羽 (あだ名: もっち、もち、ももは) ※重要!! もっちは平山遊季や松本わかなのことではありません！\n"
                         f"・上國料萌衣 (かみこ) / 川村文乃 (かわむー、かむ) / 伊勢鈴蘭 (れら、れらたん) / 橋迫鈴 (鈴ちゃん)\n"
                         f"・川名凜 (ケロ、ケロちゃん) / 為永幸音 (しおんぬ、ため) / 松本わかな (わかにゃ)\n"
-                        f"・平山遊季 (ゆきちゃん, ぺい) / 下井谷幸穂 (ゆっぴょん) / 後藤花 (はなな)\n"
+                        f"・平山遊季 (ゆきちゃん、ぺい) / 下井谷幸穂 (ゆっぴょん) / 後藤花 (はなな)\n"
                         f"※ 上記以外のメンバー（例：石川、村田、筒井、みゆ、にいな等）はアンジュルムのメンバーではありません。他グループのメンバー同士の会話（例：研修生同期トークなど）は完全に無視し、絶対に抽出しないでください。\n\n"
                         f"【最重要：除外ルール】\n"
                         f"・上記対応表にある「本物のアンジュルムメンバー」への言及が1文字もない場合は、絶対に何も出力しないでください。\n"
@@ -356,4 +368,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
