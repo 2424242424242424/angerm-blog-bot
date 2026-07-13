@@ -47,11 +47,12 @@ def send_line_message(message, image_urls=None):
 
     # 2. 画像がある場合は最大4枚ずつ別メッセージで送信
     if image_urls:
-        print(f"[LINE画像送信開始] 対象枚数: {len(image_urls)} 枚")
+        print(f"\n【DEBUG】[LINE画像送信セクション] 処理を開始します。対象URL数: {len(image_urls)}")
         for idx in range(0, len(image_urls), 4):
             chunk = image_urls[idx:idx+4]
             messages = []
             for img_url in chunk:
+                print(f"【DEBUG】LINEメッセージ格納URL: {img_url}")
                 messages.append({
                     "type": "image",
                     "originalContentUrl": img_url,
@@ -65,10 +66,13 @@ def send_line_message(message, image_urls=None):
                 data_image = json.dumps(payload_image).encode("utf-8")
                 req = urllib.request.Request(url, data=data_image, headers=headers, method="POST")
                 with urllib.request.urlopen(req) as res:
+                    print(f"【DEBUG】LINE画像送信API レスポンスステータス: {res.getcode()}")
                     if res.getcode() == 200:
                         print(f"LINEへの画像通知 ({idx+1}〜{idx+len(chunk)}枚目) が成功しました！")
             except Exception as e:
-                print(f"LINE画像通知エラー: {e}")
+                print(f"【DEBUG】LINE画像通知API実行エラー: {e}")
+    else:
+        print("\n【DEBUG】[LINE画像送信セクション] image_urls が空またはNoneのためスキップされました。")
 
 def main():
     # 1. 各グループのRSS URLリスト
@@ -91,7 +95,6 @@ def main():
         "rosychronicle": "https://rssblog.ameba.jp/rosychronicle/rss20.xml"
     }
 
-    # アンジュルム言及を一次検知するためのキーワード
     angerme_keywords = (
         r"アンジュルム|アンジュ|スマイレージ|スマ|"
         r"上國料|かみこ|萌衣|川村|文乃|かわむー|かむ|伊勢|鈴蘭|れいら|れら|れらたん|橋迫|鈴|鈴ちゃん|"
@@ -99,7 +102,6 @@ def main():
         r"下井谷|幸穂|ゆっぴょん|ゆきほ|後藤|花|はなな|ごっちん|長野|桃羽|もっち|もち|ももは"
     )
     
-    # 2. 基準時刻の設定 (JST基準)
     jst = timezone(timedelta(hours=9))
     now = datetime.now(jst)
     
@@ -112,9 +114,9 @@ def main():
 
     client_gemini = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-    processed_tweets_data = []      # アンジュルム本人の要約
-    mention_tweets_data = []        # 他グループからの言及要約
-    all_extracted_image_urls = []   # アンジュルム本人の画像URLリスト（他メン画像は含めない）
+    processed_tweets_data = []      
+    mention_tweets_data = []        
+    all_extracted_image_urls = []   
 
     # ==========================================
     # 処理①：各グループのブログRSSを巡回・スキャン
@@ -151,16 +153,19 @@ def main():
             if group_key in ["angerme", "angerme-ss-shin"]:
                 print(f" -> 【アンジュルム本日判定一致】: {theme} - {title}")
                 
-                # 画像URLの抽出と整形（タイポを修正し安定化）
+                # 画像URLの抽出（デバッグ用に条件を一度広くします）
                 corrected_img_urls = []
-                raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+?\.(?:jpg|jpeg|png)', description, re.IGNORECASE)
+                raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', description)
                 
+                print(f"   【DEBUG】正規表現マッチ数: {len(raw_img_matches)}")
                 for url in raw_img_matches:
+                    # 末尾のゴミ取り処理を確実に実施
+                    url = url.split('"')[0].split("'")[0].split('>')[0].split(' ')[0]
                     if "charimages" in url or "blog_import" in url:
                         continue
                     
-                    # AmebaのSSL仕様を回避するため、http:// に変換
                     http_url = url.replace("https://", "http://")
+                    print(f"   【DEBUG】抽出整形後URL: {http_url}")
                     
                     if http_url not in corrected_img_urls:
                         corrected_img_urls.append(http_url)
@@ -192,6 +197,7 @@ def main():
                         req_img = urllib.request.Request(corrected_img_urls[0], headers={'User-Agent': 'Mozilla/5.0'})
                         img_data = urllib.request.urlopen(req_img).read()
                         contents.append(types.Part.from_bytes(data=img_data, mime_type="image/jpeg"))
+                        print("   【DEBUG】Gemini送信用の第1画像オブジェクト化に成功")
                     except Exception as e:
                         print(f"   [Gemini用画像読み込み失敗] {e}")
 
@@ -205,14 +211,13 @@ def main():
             # --- 他のハロプロブログの場合の処理（アンジュルム言及チェック） ---
             else:
                 if re.search(angerme_keywords, title) or re.search(angerme_keywords, description):
-                    # 他メン言及用のプロンプト
                     prompt_mention = (
                         f"あなたはハロー！プロジェクトの熱心なファンであり、優秀な広報アシスタントです。\n"
-                        f"提供されたブログの文章を解析し、【本物のアンジュルム現役メンバー】または【アンジュルムというグループ】に対する具体的な言言及・交流（エピソード、会話、ツーショット等）が含まれている場合のみ、指定のフォーマットで要約を作成してください。\n\n"
+                        f"提供されたブログの文章を解析し、【本物のアンジュルム現役メンバー】または【アンジュルムというグループ】に対する具体的な言及・交流（エピソード、会話、ツーショット等）が含まれている場合のみ、指定のフォーマットで要約を作成してください。\n\n"
                         f"【⚠️重要：アンジュルムの正しいメンバー名とあだ名の知識対応表】\n"
                         f"・長野桃羽 (あだ名: もっち、もち、ももは) ※重要!! もっちは平山遊季や松本わかなのことではありません！\n"
                         f"・上國料萌衣 (かみこ) / 川村文乃 (かわむー、かむ) / 伊勢鈴蘭 (れら、れらたん) / 橋迫鈴 (鈴ちゃん)\n"
-                        f"・川名凜 (ケロ、ケロちゃん) / 為永幸音 (しおんぬ、ため) / 松本わかな (わかにゃ)\n"
+                        r"・川名凜 (ケロ、ケロちゃん) / 為永幸音 (しおんぬ、ため) / 松本わかな (わかにゃ)\n"
                         f"・平山遊季 (ゆきちゃん、ぺい) / 下井谷幸穂 (ゆっぴょん) / 後藤花 (はなな)\n"
                         f"※ 上記以外のメンバー（例：石川、村田、筒井、みゆ、にいな等）はアンジュルムのメンバーではありません。他グループのメンバー同士の会話（例：研修生同期トークなど）は完全に無視し、絶対に抽出しないでください。\n\n"
                         f"【最重要：除外ルール】\n"
@@ -263,6 +268,10 @@ def main():
         print("\n[投稿内容の確認]")
         print(final_tweet)
         
+        print(f"\n【DEBUG】[投稿一括処理セクション] 最終的に集まった全画像URL総数: {len(all_extracted_image_urls)}")
+        for idx, u in enumerate(all_extracted_image_urls):
+            print(f"【DEBUG】全画像リスト[{idx}]: {u}")
+
         if not IS_TEST_MODE:
             auth = tweepy.OAuth1UserHandler(
                 os.environ.get("TWITTER_API_KEY"),
@@ -312,7 +321,6 @@ def main():
                 print(f"X（Twitter）親投稿エラー: {e}")
                 return
 
-            # アンジュルム本人の画像のみを4枚ずつツリーに繋げる
             reply_images_groups = [all_media_ids[i:i + 4] for i in range(4, len(all_media_ids), 4)]
             if reply_images_groups:
                 reply_target_id = parent_tweet_id
@@ -323,7 +331,7 @@ def main():
                         reply_target_id = res_reply.data["id"]
                         time.sleep(2)
                     except Exception as reply_err:
-                        print(f"返信ツリー投稿エラー: reply_err")
+                        print(f"返信ツリー投稿エラー: {reply_err}")
 
             for path in temp_files:
                 if os.path.exists(path): os.remove(path)
