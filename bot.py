@@ -113,7 +113,7 @@ def main():
 
     processed_tweets_data = []      # アンジュルム本人の要約
     mention_tweets_data = []        # 他グループからの言及要約
-    all_extracted_image_urls = []   # すべての画像URL（一括アップロード用）
+    all_extracted_image_urls = []   # アンジュルム本人の画像URLリスト（他メン画像は含めない）
 
     # ==========================================
     # 処理①：各グループのブログRSSを巡回・スキャン
@@ -150,6 +150,7 @@ def main():
             if group_key in ["angerme", "angerme-ss-shin"]:
                 print(f" -> 【アンジュルム本日判定一致】: {theme} - {title}")
                 
+                # 画像URLの抽出（アンジュ本人の写真は無条件で追加）
                 corrected_img_urls = []
                 raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', description)
                 for url in raw_img_matches:
@@ -196,19 +197,12 @@ def main():
                 except Exception as e:
                     print(f"   Gemini APIエラー: {e}")
 
-            # --- 他のハロプロブログの場合の処理（アンジュルム言及チェック） ---
+            # --- 他のハロプロブログの場合の処理（アンジュルム言言及チェック） ---
             else:
                 if re.search(angerme_keywords, title) or re.search(angerme_keywords, description):
-                    corrected_img_urls = []
-                    raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', description)
-                    for url in raw_img_matches:
-                        url = url.split('"')[0].split("'")[0].split('>')[0]
-                        if "charimages" in url or "blog_import" in url or url.lower().endswith(".gif"):
-                            continue
-                        if url not in corrected_img_urls:
-                            corrected_img_urls.append(url)
+                    # ★他メン・OGブログの写真は抽出しない（ロジックをスキップ）
 
-                    # 他メン言及用の厳格＆エモーショナルプロンプト（知識の誤認識をハードガード）
+                    # 他メン言及用のプロンプト（トンマナをアンジュ本人のルールと統一）
                     prompt_mention = (
                         f"あなたはハロー！プロジェクトの熱心なファンであり、優秀な広報アシスタントです。\n"
                         f"提供されたブログの文章を解析し、【本物のアンジュルム現役メンバー】または【アンジュルムというグループ】に対する具体的な言及・交流（エピソード、会話、ツーショット等）が含まれている場合のみ、指定のフォーマットで要約を作成してください。\n\n"
@@ -225,13 +219,13 @@ def main():
                         f"■ 投稿者名(テーマ): {theme}\n"
                         f"■ ブログタイトル: {title}\n"
                         f"■ 本文: {description}\n\n"
-                        f"【出力フォーマット・トーンルール】※該当する場合のみ\n"
+                        f"【出力フォーマット・トンマナの厳格なルール】※該当する場合のみ\n"
                         f"1. 挨拶や前置きは一切出力せず、純粋な要約文だけを出力してください。\n"
-                        f"2. アンジュルムのメンバーの記述には、必ず上記の【あだ名】を積極的に使ってください。\n"
-                        f"3. 交流の内容を、感情豊かに、絵文字（✨、💖、😭、🥺、🫶など）もたくさん活用して、ハロプロならではの尊い「青春感」が伝わるようにエモーショナルに書いてください。\n"
+                        f"2. アンジュルムのメンバーの記述には、必ず上記の【あだ名】（例: もっち、かみこ、わかにゃ等）を使ってください。\n"
+                        f"3. トンマナはアンジュルム本人の要約ルールを厳守してください。メンバーの口調のまま表現する部分は「」書きに、客観的なまとめは「」なしに構成してください。\n"
                         f"4. 文章の最後に、ブログのURL（ {link_url} ）を必ず添えてください。\n"
                         f"5. 【厳守】全体の文字数は、URLを除いて必ず70文字以内（厳守）にしてください。\n"
-                        f"6. 文頭のグループ名略称のブラケット部分は、必ず指定の6パターン【 娘。、つばき、Juice、OCHA、BEYO、ロージー 】のいずれか、または【 OG 】のみに統一してください。(例: 💬 [娘。小田]、💬 [Juice段原]、💬 [ロージー相馬] )"
+                        f"6. 文頭のグループ名略称のブラケット部分は、必ず指定の6パターン【 娘。、つばき、Juice、OCHA、BEYO、ロージー 】のいずれか、または【 OG 】のみに統一してください。(例: 💬 [娘。小田]、💬 [Juice段原] )"
                     )
 
                     try:
@@ -241,35 +235,9 @@ def main():
                         print(f"   Gemini APIエラー(テキスト判定): {e}")
                         result_text = ""
 
-                    # 「言及なし」のテキストや言い訳が出力に紛れ込んだ場合は弾く
                     if result_text and not any(msg in result_text for msg in ["言及はありません", "表示不要", "対象外", "見つかりませんでした"]):
                         print(f" -> 【他グループ言及確定】[{group_key}] {theme} - {title}")
                         mention_tweets_data.append(result_text)
-
-                        # 写真の選別：各画像をGeminiに見せて「本物のアンジュルムメンバー」がいるか1枚ずつ厳密に判定
-                        for img_url in corrected_img_urls:
-                            photo_prompt = (
-                                "この画像に、アンジュルム（旧スマイレージ）の現役メンバー（かみこ、かわむー、れら、鈴ちゃん、ケロ、しおんぬ、わかにゃ、ぺい、ゆっぴょん、はなな、もっち/長野桃羽）のいずれかが一緒に写っていますか？\n"
-                                "写っている場合は『YES』、それ以外（他グループのメンバーのみの自撮りなど）は『NO』とだけ出力してください。解説は不要です。"
-                            )
-                            try:
-                                req_img = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
-                                img_data = urllib.request.urlopen(req_img).read()
-                                photo_contents = [
-                                    photo_prompt,
-                                    types.Part.from_bytes(data=img_data, mime_type="image/jpeg")
-                                ]
-                                photo_res = client_gemini.models.generate_content(model='gemini-2.5-flash', contents=photo_contents)
-                                decision = photo_res.text.strip().upper()
-                                
-                                if "YES" in decision:
-                                    print(f"   [写真選別:合致] アンジュメンバーを検知したため写真を追加します: {img_url}")
-                                    if img_url not in all_extracted_image_urls:
-                                        all_extracted_image_urls.append(img_url)
-                                else:
-                                    print(f"   [写真選別:除外] アンジュメンバーが写っていないためスキップ: {img_url}")
-                            except Exception as img_err:
-                                print(f"   [写真判定エラー] {img_err}")
 
     # ==========================================
     # 処理②：一括でXとLINEに投稿
@@ -341,6 +309,7 @@ def main():
                 print(f"X（Twitter）親投稿エラー: {e}")
                 return
 
+            # アンジュルム本人の画像のみを4枚ずつツリーに繋げる
             reply_images_groups = [all_media_ids[i:i + 4] for i in range(4, len(all_media_ids), 4)]
             if reply_images_groups:
                 reply_target_id = parent_tweet_id
