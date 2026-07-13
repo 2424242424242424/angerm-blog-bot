@@ -13,7 +13,7 @@ from google.genai import types
 import tweepy
 
 # ★テスト設定：ここを True にするとX投稿をスキップし、LINE通知のみ行います
-IS_TEST_MODE = False
+IS_TEST_MODE = True
 
 def send_line_message(message, image_urls=None):
     """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る"""
@@ -47,6 +47,7 @@ def send_line_message(message, image_urls=None):
 
     # 2. 画像がある場合は最大4枚ずつ別メッセージで送信
     if image_urls:
+        print(f"[LINE画像送信開始] 対象枚数: {len(image_urls)} 枚")
         for idx in range(0, len(image_urls), 4):
             chunk = image_urls[idx:idx+4]
             messages = []
@@ -150,15 +151,19 @@ def main():
             if group_key in ["angerme", "angerme-ss-shin"]:
                 print(f" -> 【アンジュルム本日判定一致】: {theme} - {title}")
                 
-                # 画像URLの抽出（アンジュ本人の写真は無条件で追加）
+                # 画像URLの抽出と整形（タイポを修正し安定化）
                 corrected_img_urls = []
-                raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', description)
+                raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+?\.(?:jpg|jpeg|png)', description, re.IGNORECASE)
+                
                 for url in raw_img_matches:
-                    url = url.split('"')[0].split("'")[0].split('>')[0]
-                    if "charimages" in url or "blog_import" in url or url.lower().endswith(".gif"):
+                    if "charimages" in url or "blog_import" in url:
                         continue
-                    if url not in corrected_img_urls:
-                        corrected_img_urls.append(url)
+                    
+                    # AmebaのSSL仕様を回避するため、http:// に変換
+                    http_url = url.replace("https://", "http://")
+                    
+                    if http_url not in corrected_img_urls:
+                        corrected_img_urls.append(http_url)
                 
                 for url in corrected_img_urls:
                     if url not in all_extracted_image_urls:
@@ -197,15 +202,13 @@ def main():
                 except Exception as e:
                     print(f"   Gemini APIエラー: {e}")
 
-            # --- 他のハロプロブログの場合の処理（アンジュルム言言及チェック） ---
+            # --- 他のハロプロブログの場合の処理（アンジュルム言及チェック） ---
             else:
                 if re.search(angerme_keywords, title) or re.search(angerme_keywords, description):
-                    # ★他メン・OGブログの写真は抽出しない（ロジックをスキップ）
-
-                    # 他メン言及用のプロンプト（トンマナをアンジュ本人のルールと統一）
+                    # 他メン言及用のプロンプト
                     prompt_mention = (
                         f"あなたはハロー！プロジェクトの熱心なファンであり、優秀な広報アシスタントです。\n"
-                        f"提供されたブログの文章を解析し、【本物のアンジュルム現役メンバー】または【アンジュルムというグループ】に対する具体的な言及・交流（エピソード、会話、ツーショット等）が含まれている場合のみ、指定のフォーマットで要約を作成してください。\n\n"
+                        f"提供されたブログの文章を解析し、【本物のアンジュルム現役メンバー】または【アンジュルムというグループ】に対する具体的な言言及・交流（エピソード、会話、ツーショット等）が含まれている場合のみ、指定のフォーマットで要約を作成してください。\n\n"
                         f"【⚠️重要：アンジュルムの正しいメンバー名とあだ名の知識対応表】\n"
                         f"・長野桃羽 (あだ名: もっち、もち、ももは) ※重要!! もっちは平山遊季や松本わかなのことではありません！\n"
                         f"・上國料萌衣 (かみこ) / 川村文乃 (かわむー、かむ) / 伊勢鈴蘭 (れら、れらたん) / 橋迫鈴 (鈴ちゃん)\n"
@@ -320,7 +323,7 @@ def main():
                         reply_target_id = res_reply.data["id"]
                         time.sleep(2)
                     except Exception as reply_err:
-                        print(f"返信ツリー投稿エラー: {reply_err}")
+                        print(f"返信ツリー投稿エラー: reply_err")
 
             for path in temp_files:
                 if os.path.exists(path): os.remove(path)
