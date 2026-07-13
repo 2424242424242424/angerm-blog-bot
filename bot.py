@@ -47,7 +47,6 @@ def send_line_message(message, image_urls=None):
 
     # 2. 画像がある場合は最大4枚ずつ別メッセージで送信
     if image_urls:
-        # LINEは1回のメッセージでまとめて送れるのは最大5個（ここでは画像4枚ずつに分割）
         for idx in range(0, len(image_urls), 4):
             chunk = image_urls[idx:idx+4]
             messages = []
@@ -72,8 +71,9 @@ def send_line_message(message, image_urls=None):
 
 def main():
     # 1. 各グループのRSS URLリスト（アンジュルムを除くハロー！プロジェクト全体）
+    # ★つばきファクトリーのキー重複を修正しました
     rss_urls = {
-        "angerme": "https://rssblog.ameba.jp/angerme-new/rss20.xml", # 本作用
+        "angerme": "https://rssblog.ameba.jp/angerme-new/rss20.xml",
         "angerme-ss-shin": "https://rssblog.ameba.jp/angerme-ss-shin/rss20.xml",
         "morningmusume_15ki": "https://rssblog.ameba.jp/morningmusume15ki/rss20.xml",
         "morningmusume_16ki": "https://rssblog.ameba.jp/morningmusume16ki/rss20.xml",
@@ -81,8 +81,8 @@ def main():
         "morningmusume_12ki": "https://rssblog.ameba.jp/morningmusume-12ki/rss20.xml",
         "juicejuice": "https://rssblog.ameba.jp/juicejuice-official/rss20.xml",
         "inaba-manaka": "https://rssblog.ameba.jp/inaba-manaka/rss20.xml",
-        "tsubaki_factory": "https://rssblog.ameba.jp/tsubaki-factory/rss20.xml",
-        "tsubaki_factory": "https://rssblog.ameba.jp/tsubaki-factory-new/rss20.xml",
+        "tsubaki_factory_old": "https://rssblog.ameba.jp/tsubaki-factory/rss20.xml",
+        "tsubaki_factory_new": "https://rssblog.ameba.jp/tsubaki-factory-new/rss20.xml",
         "beyooooonds_chicatetsu": "https://rssblog.ameba.jp/beyooooonds-chicatetsu/rss20.xml",
         "beyooooonds_rfro": "https://rssblog.ameba.jp/beyooooonds-rfro/rss20.xml",
         "beyooooonds_seasonings": "https://rssblog.ameba.jp/beyooooonds/rss20.xml",
@@ -91,13 +91,13 @@ def main():
         "rosychronicle": "https://rssblog.ameba.jp/rosychronicle/rss20.xml"
     }
 
-    # アンジュルム言及を検知するためのキーワードパターン（本名、苗字、名前、あだ名）
-    # 新メンバー加入や卒業に合わせてここを調整してください
+    # アンジュルム言及を検知するためのキーワードパターン
+    # ★末尾の「|」を削除し、誤検知バグを修正しました
     angerme_keywords = (
         r"アンジュルム|アンジュ|スマイレージ|スマ|"
         r"上國料|かみこ|萌衣|川村|文乃|かわむー|かむ|伊勢|鈴蘭|れいら|れら|れらたん|橋迫|鈴|鈴ちゃん|"
         r"川名|凜|ケロ|ケロちゃん|為永|幸音|しおんぬ|ため|松本|わかな|わかにゃ|平山|遊季|ゆき|ぺいぺい|ぺい|"
-        r"下井谷|幸穂|ゆっぴょん|ゆきほ|後藤|花|はな|はなな|ごっちん|長野|桃羽|もっち|もち|ももは|"
+        r"下井谷|幸穂|ゆっぴょん|ゆきほ|後藤|花|はな|はなな|ごっちん|長野|桃羽|もっち|もち|ももは"
     )
     
     # 2. 基準時刻の設定 (JST基準)
@@ -145,15 +145,13 @@ def main():
             except ValueError:
                 continue
             
-            # 前日の投稿かどうかの判定
             if not (start_of_yesterday <= pub_date <= end_of_yesterday):
                 continue
 
             # --- アンジュルム公式ブログの場合の処理 ---
-            if group_key == "angerme":
+            if group_key in ["angerme", "angerme-ss-shin"]:
                 print(f" -> 【アンジュルム本日判定一致】: {theme} - {title}")
                 
-                # 文字列から直接アメブロ画像URLをすべて抽出
                 corrected_img_urls = []
                 raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', description)
                 for url in raw_img_matches:
@@ -202,11 +200,9 @@ def main():
 
             # --- 他のハロプロブログの場合の処理（アンジュルム言及チェック） ---
             else:
-                # タイトルまたは本文にキーワードが含まれるかスキャン
                 if re.search(angerme_keywords, title) or re.search(angerme_keywords, description):
                     print(f" -> 【他グループ言及検知】[{group_key}] {theme} - {title}")
                     
-                    # 画像URLの抽出
                     corrected_img_urls = []
                     raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', description)
                     for url in raw_img_matches:
@@ -220,7 +216,6 @@ def main():
                         if url not in all_extracted_image_urls:
                             all_extracted_image_urls.append(url)
 
-                    # 他メン言及用のGeminiプロンプト
                     prompt_mention = (
                         f"あなたはハロー！プロジェクトの熱心なファンであり、優秀な広報アシスタントです。\n"
                         f"他グループのメンバーがアンジュルムのメンバーやグループについて言及している部分を抽出し、指定のフォーマットで1つだけ要約を作成してください。\n"
@@ -256,12 +251,10 @@ def main():
     # ==========================================
     # 処理②：一括でXとLINEに投稿
     # ==========================================
-    # 本人、または他メン言及のどちらか片方でもデータがあれば処理を実行
     if processed_tweets_data or mention_tweets_data:
         summary_text = "\n\n".join(processed_tweets_data) if processed_tweets_data else "（本日の新規ブログ投稿はありません）"
         time_str = start_of_yesterday.strftime('%Y/%m/%d')
         
-        # 基本の親投稿テキストを構築
         final_tweet = (
             f"#アンジュルムブログ定期便🪽\n"
             f"{time_str} ※忙しい人向けブログ要約です👍\n\n"
@@ -269,7 +262,6 @@ def main():
             f"🔗 一覧: https://ameblo.jp/angerme-new/"
         )
         
-        # 他メン言及データがある場合は、下にコーナーとして合流させる
         if mention_tweets_data:
             mention_text = "\n\n".join(mention_tweets_data)
             final_tweet += f"\n\nーーー\n✉️他のハロメンやOGより\n\n{mention_text}"
@@ -277,7 +269,6 @@ def main():
         print("\n[投稿内容の確認]")
         print(final_tweet)
         
-        # テストモードでなければX投稿を実行
         if not IS_TEST_MODE:
             auth = tweepy.OAuth1UserHandler(
                 os.environ.get("TWITTER_API_KEY"),
@@ -327,7 +318,6 @@ def main():
                 print(f"X（Twitter）親投稿エラー: {e}")
                 return
 
-            # アンジュ本人＋他メン抽出画像をすべて含めて、4枚ずつ返信ツリーに繋げる
             reply_images_groups = [all_media_ids[i:i + 4] for i in range(4, len(all_media_ids), 4)]
             if reply_images_groups:
                 reply_target_id = parent_tweet_id
