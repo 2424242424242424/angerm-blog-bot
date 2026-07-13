@@ -70,8 +70,7 @@ def send_line_message(message, image_urls=None):
                 print(f"LINE画像通知エラー: {e}")
 
 def main():
-    # 1. 各グループのRSS URLリスト（アンジュルムを除くハロー！プロジェクト全体）
-    # ★つばきファクトリーのキー重複を修正しました
+    # 1. 各グループのRSS URLリスト
     rss_urls = {
         "angerme": "https://rssblog.ameba.jp/angerme-new/rss20.xml",
         "angerme-ss-shin": "https://rssblog.ameba.jp/angerme-ss-shin/rss20.xml",
@@ -91,8 +90,7 @@ def main():
         "rosychronicle": "https://rssblog.ameba.jp/rosychronicle/rss20.xml"
     }
 
-    # アンジュルム言及を検知するためのキーワードパターン
-    # ★末尾の「|」を削除し、誤検知バグを修正しました
+    # アンジュルム言及を一次検知するためのキーワード
     angerme_keywords = (
         r"アンジュルム|アンジュ|スマイレージ|スマ|"
         r"上國料|かみこ|萌衣|川村|文乃|かわむー|かむ|伊勢|鈴蘭|れいら|れら|れらたん|橋迫|鈴|鈴ちゃん|"
@@ -201,8 +199,7 @@ def main():
             # --- 他のハロプロブログの場合の処理（アンジュルム言及チェック） ---
             else:
                 if re.search(angerme_keywords, title) or re.search(angerme_keywords, description):
-                    print(f" -> 【他グループ言及検知】[{group_key}] {theme} - {title}")
-                    
+                    # 全画像URLを一旦パース
                     corrected_img_urls = []
                     raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', description)
                     for url in raw_img_matches:
@@ -211,42 +208,63 @@ def main():
                             continue
                         if url not in corrected_img_urls:
                             corrected_img_urls.append(url)
-                    
-                    for url in corrected_img_urls:
-                        if url not in all_extracted_image_urls:
-                            all_extracted_image_urls.append(url)
 
+                    # 他メン言及用の厳格なGeminiプロンプト（誤判定防止を極限まで強化）
                     prompt_mention = (
                         f"あなたはハロー！プロジェクトの熱心なファンであり、優秀な広報アシスタントです。\n"
-                        f"他グループのメンバーがアンジュルムのメンバーやグループについて言及している部分を抽出し、指定のフォーマットで1つだけ要約を作成してください。\n"
-                        f"アンジュルムに関する言及がないブログは表示不要です。\n\n"
+                        f"提供されたブログの文章を解析し、【アンジュルムの現役メンバー】または【アンジュルムというグループ自体】に対する具体的な言及・交流（エピソード、会話、ツーショット等）が含まれている場合のみ、指定のフォーマットで1点要約を作成してください。\n\n"
+                        f"【最重要：除外ルール】\n"
+                        f"・他グループのメンバー（例：Juice=Juice、つばきファクトリー、BEYOOOOONDS、OCHA NORMA、ロージークロニクル等、アンジュルムではないメンバー）への言及しか見つからない場合は、アンジュルムへの言及とはみなさず、絶対に何も出力しないでください。\n"
+                        f"・研修生同期であっても、相手が現役のアンジュルムメンバーでない場合は完全に無視してください。\n"
+                        f"・「アンジュルムに関する言及はありません」などの言い訳・説明のテキストも一切出力禁止です。非該当の場合は完全に【空白（空文字）】で返してください。\n\n"
                         f"■ 投稿者グループ: {group_key}\n"
                         f"■ 投稿者名(テーマ): {theme}\n"
                         f"■ ブログタイトル: {title}\n"
                         f"■ 本文: {description}\n\n"
-                        f"【出力フォーマットと表現の厳格なルール】\n"
-                        f"1. 挨拶、タイトル等は一切出力せず、純粋な要約文だけを出力してください。\n"
-                        f"2. 「誰がアンジュルムの誰と何をしていたか、何を話していたか、どんな言及（交流）があったか」のコアな部分をエモーショナルに書いてください。\n"
+                        f"【出力フォーマット】※該当する場合のみ\n"
+                        f"1. 挨拶、タイトル、前置き等は一切出力せず、純粋な要約文だけを出力してください。\n"
+                        f"2. 「誰がアンジュルムの誰と何をしていたか、どんな交流・言及があったか」のコアな部分をエモーショナルに書いてください。\n"
                         f"3. 文章の最後に、ブログのURL（ {link_url} ）を必ず添えてください。\n"
                         f"4. 【厳守】全体の文字数は、URLを除いて必ず70文字以内（厳守）にしてください。\n"
                         f"5. 文頭には「💬 [グループ名略称・メンバー名]」という形式を記載してください。(例: 💬 [娘。小田]、💬 [Juice段原] )"
                     )
 
-                    contents = [prompt_mention]
-                    if corrected_img_urls:
-                        try:
-                            req_img = urllib.request.Request(corrected_img_urls[0], headers={'User-Agent': 'Mozilla/5.0'})
-                            img_data = urllib.request.urlopen(req_img).read()
-                            contents.append(types.Part.from_bytes(data=img_data, mime_type="image/jpeg"))
-                        except Exception as e:
-                            print(f"   [Gemini用画像読み込み失敗] {e}")
-
                     try:
-                        response = client_gemini.models.generate_content(model='gemini-2.5-flash', contents=contents)
+                        response = client_gemini.models.generate_content(model='gemini-2.5-flash', contents=[prompt_mention])
                         result_text = response.text.strip()
-                        if result_text: mention_tweets_data.append(result_text)
                     except Exception as e:
-                        print(f"   Gemini APIエラー: {e}")
+                        print(f"   Gemini APIエラー(テキスト判定): {e}")
+                        result_text = ""
+
+                    # 判定の結果、正しくアンジュルムへの言及があった場合のみ写真精査と要約追加を行う
+                    if result_text and not any(msg in result_text for msg in ["言及はありません", "表示不要", "対象外"]):
+                        print(f" -> 【他グループ言及確定】[{group_key}] {theme} - {title}")
+                        mention_tweets_data.append(result_text)
+
+                        # 写真の選別：各画像をGeminiに見せて「アンジュルムメンバーがいるか」を1枚ずつ厳密に判定
+                        for img_url in corrected_img_urls:
+                            photo_prompt = (
+                                "この画像に「アンジュルム（旧スマイレージ）」の現役メンバー、またはグループ全体のいずれかが写っていますか？\n"
+                                "写っている場合は『YES』、他グループのメンバーしか写っていない場合や、アンジュルムのメンバーが写っていない場合は『NO』とだけ出力してください。解説は不要です。"
+                            )
+                            try:
+                                req_img = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
+                                img_data = urllib.request.urlopen(req_img).read()
+                                photo_contents = [
+                                    photo_prompt,
+                                    types.Part.from_bytes(data=img_data, mime_type="image/jpeg")
+                                ]
+                                photo_res = client_gemini.models.generate_content(model='gemini-2.5-flash', contents=photo_contents)
+                                decision = photo_res.text.strip().upper()
+                                
+                                if "YES" in decision:
+                                    print(f"   [写真選別:合致] アンジュメンバーを検知したため写真を追加します: {img_url}")
+                                    if img_url not in all_extracted_image_urls:
+                                        all_extracted_image_urls.append(img_url)
+                                else:
+                                    print(f"   [写真選別:除外] アンジュメンバーが写っていないためスキップ: {img_url}")
+                            except Exception as img_err:
+                                print(f"   [写真判定エラー] {img_err}")
 
     # ==========================================
     # 処理②：一括でXとLINEに投稿
