@@ -47,10 +47,12 @@ def send_line_message(message, image_urls=None):
 
     # 2. 画像がある場合は最大4枚ずつ別メッセージで送信
     if image_urls:
+        print(f"\n【DEBUG】[LINE画像送信セクション] 処理を開始します。対象URL数: {len(image_urls)}")
         for idx in range(0, len(image_urls), 4):
             chunk = image_urls[idx:idx+4]
             messages = []
             for img_url in chunk:
+                print(f"【DEBUG】LINEメッセージ格納URL: {img_url}")
                 messages.append({
                     "type": "image",
                     "originalContentUrl": img_url,
@@ -64,13 +66,16 @@ def send_line_message(message, image_urls=None):
                 data_image = json.dumps(payload_image).encode("utf-8")
                 req = urllib.request.Request(url, data=data_image, headers=headers, method="POST")
                 with urllib.request.urlopen(req) as res:
+                    print(f"【DEBUG】LINE画像送信API レスポンスステータス: {res.getcode()}")
                     if res.getcode() == 200:
                         print(f"LINEへの画像通知 ({idx+1}〜{idx+len(chunk)}枚目) が成功しました！")
             except Exception as e:
-                print(f"LINE画像通知エラー: {e}")
+                print(f"【DEBUG】LINE画像通知API実行エラー: {e}")
+    else:
+        print("\n【DEBUG】[LINE画像送信セクション] image_urls が空またはNoneのためスキップされました。")
 
 def main():
-    # 1. 各グループのRSS URLリスト
+    # 1. 解析の確実性を担保するため、URLを元の「rss20.xml」に戻して安定化
     rss_urls = {
         "angerme": "https://rssblog.ameba.jp/angerme-new/rss20.xml",
         "angerme-ss-shin": "https://rssblog.ameba.jp/angerme-ss-shin/rss20.xml",
@@ -90,7 +95,6 @@ def main():
         "rosychronicle": "https://rssblog.ameba.jp/rosychronicle/rss20.xml"
     }
 
-    # アンジュルム言及を一次検知するためのキーワード
     angerme_keywords = (
         r"アンジュルム|アンジュ|スマイレージ|スマ|"
         r"上國料|かみこ|萌衣|川村|文乃|かわむー|かむ|伊勢|鈴蘭|れいら|れら|れらたん|橋迫|鈴|鈴ちゃん|"
@@ -98,7 +102,6 @@ def main():
         r"下井谷|幸穂|ゆっぴょん|ゆきほ|後藤|花|はなな|ごっちん|長野|桃羽|もっち|もち|ももは"
     )
     
-    # 2. 基準時刻の設定 (JST基準)
     jst = timezone(timedelta(hours=9))
     now = datetime.now(jst)
     
@@ -111,9 +114,9 @@ def main():
 
     client_gemini = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-    processed_tweets_data = []      # アンジュルム本人の要約
-    mention_tweets_data = []        # 他グループからの言及要約
-    all_extracted_image_urls = []   # アンジュルム本人の画像URLリスト（他メン画像は含めない）
+    processed_tweets_data = []      
+    mention_tweets_data = []        
+    all_extracted_image_urls = []   
 
     # ==========================================
     # 処理①：各グループのブログRSSを巡回・スキャン
@@ -123,8 +126,11 @@ def main():
         try:
             req_rss = urllib.request.Request(rss_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req_rss) as response:
-                xml_data = response.read()
-            root = ET.fromstring(xml_data)
+                xml_raw_bytes = response.read()
+            
+            # 【新アプローチ】XML構造に関係なく、生データ全体から直接画像URLを取得するための文字列変換
+            xml_text_content = xml_raw_bytes.decode('utf-8', errors='ignore')
+            root = ET.fromstring(xml_raw_bytes)
             items = root.findall(".//item")
         except Exception as e:
             print(f" -> RSS取得失敗 ({group_key}): {e}")
@@ -150,16 +156,26 @@ def main():
             if group_key in ["angerme", "angerme-ss-shin"]:
                 print(f" -> 【アンジュルム本日判定一致】: {theme} - {title}")
                 
-                # 画像URLの抽出と整形（修正：拡張子までを厳密にキャプチャ）
+                # 【最強ロジック】descriptionおよびXML全体から強引に画像URLを網羅抽出
                 corrected_img_urls = []
-                raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+? \.(?:jpg|jpeg|png)', description, re.IGNORECASE)
                 
+                # 検索対象をdescriptionだけでなく、XMLソース全体に広げてエスケープされたURLも巻き取る
+                search_pool = description + " " + xml_text_content
+                raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>&\?]+', search_pool)
+                
+                print(f"   【DEBUG】文字列検索マッチ数: {len(raw_img_matches)}")
                 for url in raw_img_matches:
+                    # 分離記号の残骸をクレンジング
+                    url = url.split('"')[0].split("'")[0].split('>')[0].split('<')[0].split(' ')[0]
+                    
                     if "charimages" in url or "blog_import" in url:
                         continue
-                    
-                    # AmebaのSSL/HTTPS画像バグを回避するため、http:// に一置換
+                    # 拡張子が画像形式（jpg, jpeg, png）を含んでいるか簡易チェック
+                    if not any(ext in url.lower() for ext in [".jpg", ".jpeg", ".png"]):
+                        continue
+                        
                     http_url = url.replace("https://", "http://")
+                    print(f"   【DEBUG】画像URL抽出成功: {http_url}")
                     
                     if http_url not in corrected_img_urls:
                         corrected_img_urls.append(http_url)
@@ -173,7 +189,7 @@ def main():
                     f"指定のフォーマットの【超要約】を1つだけ作成してください。\n\n"
                     f"■ メンバー名(テーマ): {theme}\n"
                     f"■ 今回のブログタイトル: {title}\n"
-                    f"■ 今回の本文: {description}\n\n"
+                    f"■ 今回の本文: {description[:500]}...\n\n"
                     f"【出力フォーマットと表現の厳格なルール】\n"
                     f"1. 挨拶、タイトル等は一切出力せず、純粋な要約文（2〜3行程度）だけを出力してください。\n"
                     f"2. ブログにある日常の出来事や感想などの内容を拾って構成してください。\n"
@@ -191,22 +207,20 @@ def main():
                         req_img = urllib.request.Request(corrected_img_urls[0], headers={'User-Agent': 'Mozilla/5.0'})
                         img_data = urllib.request.urlopen(req_img).read()
                         contents.append(types.Part.from_bytes(data=img_data, mime_type="image/jpeg"))
+                        print("   【DEBUG】Gemini送信用の第1画像オブジェクト化に成功")
                     except Exception as e:
                         print(f"   [Gemini用画像読み込み失敗] {e}")
 
                 try:
                     response = client_gemini.models.generate_content(model='gemini-2.5-flash', contents=contents)
-                    result_text = response.text.strip()
+                    result_text = response.text.strip() if response.text else ""
                     if result_text: processed_tweets_data.append(result_text)
                 except Exception as e:
                     print(f"   Gemini APIエラー: {e}")
 
             # --- 他のハロプロブログの場合の処理（アンジュルム言及チェック） ---
             else:
-                if re.search(angerme_keywords, title) or re.search(angerme_keywords, description):
-                    # ★他メン・OGブログの写真は抽出しない（ロジックをスキップ）
-
-                    # 他メン言及用のプロンプト（トンマナをアンジュ本人のルールと統一）
+                if re.search(angerme_keywords, title) or (description and re.search(angerme_keywords, description)):
                     prompt_mention = (
                         f"あなたはハロー！プロジェクトの熱心なファンであり、優秀な広報アシスタントです。\n"
                         f"提供されたブログの文章を解析し、【本物のアンジュルム現役メンバー】または【アンジュルムというグループ】に対する具体的な言及・交流（エピソード、会話、ツーショット等）が含まれている場合のみ、指定のフォーマットで要約を作成してください。\n\n"
@@ -214,7 +228,7 @@ def main():
                         f"・長野桃羽 (あだ名: もっち、もち、ももは) ※重要!! もっちは平山遊季や松本わかなのことではありません！\n"
                         f"・上國料萌衣 (かみこ) / 川村文乃 (かわむー、かむ) / 伊勢鈴蘭 (れら、れらたん) / 橋迫鈴 (鈴ちゃん)\n"
                         f"・川名凜 (ケロ、ケロちゃん) / 為永幸音 (しおんぬ、ため) / 松本わかな (わかにゃ)\n"
-                        f"・平山遊季 (ゆきちゃん、ぺい) / 下井谷幸穂 (ゆっぴょん) / 後藤花 (はなな)\n"
+                        f"・平山遊季 (ゆきちゃん, ぺい) / 下井谷幸穂 (ゆっぴょん) / 後藤花 (はなな)\n"
                         f"※ 上記以外のメンバー（例：石川、村田、筒井、みゆ、にいな等）はアンジュルムのメンバーではありません。他グループのメンバー同士の会話（例：研修生同期トークなど）は完全に無視し、絶対に抽出しないでください。\n\n"
                         f"【最重要：除外ルール】\n"
                         f"・上記対応表にある「本物のアンジュルムメンバー」への言及が1文字もない場合は、絶対に何も出力しないでください。\n"
@@ -222,7 +236,7 @@ def main():
                         f"■ 投稿者グループ: {group_key}\n"
                         f"■ 投稿者名(テーマ): {theme}\n"
                         f"■ ブログタイトル: {title}\n"
-                        f"■ 本文: {description}\n\n"
+                        f"■ 本文: {description[:400] if description else ''}...\n\n"
                         f"【出力フォーマット・トンマナの厳格なルール】※該当する場合のみ\n"
                         f"1. 挨拶や前置きは一切出力せず、純粋な要約文だけを出力してください。\n"
                         f"2. アンジュルムのメンバーの記述には、必ず上記の【あだ名】（例: もっち、かみこ、わかにゃ等）を使ってください。\n"
@@ -234,7 +248,7 @@ def main():
 
                     try:
                         response = client_gemini.models.generate_content(model='gemini-2.5-flash', contents=[prompt_mention])
-                        result_text = response.text.strip()
+                        result_text = response.text.strip() if response.text else ""
                     except Exception as e:
                         print(f"   Gemini APIエラー(テキスト判定): {e}")
                         result_text = ""
@@ -264,6 +278,10 @@ def main():
         print("\n[投稿内容の確認]")
         print(final_tweet)
         
+        print(f"\n【DEBUG】[投稿一括処理セクション] 最終的に集まった全画像URL総数: {len(all_extracted_image_urls)}")
+        for idx, u in enumerate(all_extracted_image_urls):
+            print(f"【DEBUG】全画像リスト[{idx}]: {u}")
+
         if not IS_TEST_MODE:
             auth = tweepy.OAuth1UserHandler(
                 os.environ.get("TWITTER_API_KEY"),
@@ -313,7 +331,6 @@ def main():
                 print(f"X（Twitter）親投稿エラー: {e}")
                 return
 
-            # アンジュルム本人の画像のみを4枚ずつツリーに繋げる
             reply_images_groups = [all_media_ids[i:i + 4] for i in range(4, len(all_media_ids), 4)]
             if reply_images_groups:
                 reply_target_id = parent_tweet_id
