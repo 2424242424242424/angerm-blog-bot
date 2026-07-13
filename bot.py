@@ -74,13 +74,19 @@ def main():
     # 1. 各グループのRSS URLリスト（アンジュルムを除くハロー！プロジェクト全体）
     rss_urls = {
         "angerme": "https://rssblog.ameba.jp/angerme-new/rss20.xml", # 本作用
-        "morningmusume": "https://rssblog.ameba.jp/morningmusume-9ki/rss20.xml",
+        "angerme-ss-shin": "https://rssblog.ameba.jp/angerme-ss-shin/rss20.xml",
         "morningmusume_15ki": "https://rssblog.ameba.jp/morningmusume15ki/rss20.xml",
+        "morningmusume_16ki": "https://rssblog.ameba.jp/morningmusume16ki/rss20.xml",
+        "morningmusume_10ki": "https://rssblog.ameba.jp/morningmusume-10ki/rss20.xml",
+        "morningmusume_12ki": "https://rssblog.ameba.jp/morningmusume-12ki/rss20.xml",
         "juicejuice": "https://rssblog.ameba.jp/juicejuice-official/rss20.xml",
+        "inaba-manaka": "https://rssblog.ameba.jp/inaba-manaka/rss20.xml",
         "tsubaki_factory": "https://rssblog.ameba.jp/tsubaki-factory/rss20.xml",
-        "beyooooonds": "https://rssblog.ameba.jp/beyooooonds-chicatetsu/rss20.xml",
-        "beyooooonds_rf": "https://rssblog.ameba.jp/beyooooonds-rf/rss20.xml",
+        "tsubaki_factory": "https://rssblog.ameba.jp/tsubaki-factory-new/rss20.xml",
+        "beyooooonds_chicatetsu": "https://rssblog.ameba.jp/beyooooonds-chicatetsu/rss20.xml",
+        "beyooooonds_rfro": "https://rssblog.ameba.jp/beyooooonds-rfro/rss20.xml",
         "beyooooonds_seasonings": "https://rssblog.ameba.jp/beyooooonds/rss20.xml",
+        "beyooooonds_noname": "https://rssblog.ameba.jp/beyooooonds-blog/rss20.xml",
         "ocha_norma": "https://rssblog.ameba.jp/ocha-norma/rss20.xml",
         "rosychronicle": "https://rssblog.ameba.jp/rosychronicle/rss20.xml"
     }
@@ -88,10 +94,10 @@ def main():
     # アンジュルム言及を検知するためのキーワードパターン（本名、苗字、名前、あだ名）
     # 新メンバー加入や卒業に合わせてここを調整してください
     angerme_keywords = (
-        r"アンジュルム|スマイレージ|S/mileage|"
-        r"上國料|かみこ|萌衣|川村|文乃|かわむー|伊勢|鈴蘭|れら|れらたん|橋迫|鈴|鈴ちゃん|"
-        r"川名|凜|ケロ|ケロちゃん|為永|幸音|しおんぬ|松本|わかな|わかにゃ|平山|遊季|ゆきちゃん|ぺい|"
-        r"下井谷|幸穂|ゆっぴょん|後藤|花|はなな|風見|結衣|ゆいちゃん|もち"
+        r"アンジュルム|アンジュ|スマイレージ|スマ|"
+        r"上國料|かみこ|萌衣|川村|文乃|かわむー|かむ|伊勢|鈴蘭|れいら|れら|れらたん|橋迫|鈴|鈴ちゃん|"
+        r"川名|凜|ケロ|ケロちゃん|為永|幸音|しおんぬ|ため|松本|わかな|わかにゃ|平山|遊季|ゆき|ぺいぺい|ぺい|"
+        r"下井谷|幸穂|ゆっぴょん|ゆきほ|後藤|花|はな|はなな|ごっちん|長野|桃羽|もっち|もち|ももは|"
     )
     
     # 2. 基準時刻の設定 (JST基準)
@@ -217,16 +223,17 @@ def main():
                     # 他メン言及用のGeminiプロンプト
                     prompt_mention = (
                         f"あなたはハロー！プロジェクトの熱心なファンであり、優秀な広報アシスタントです。\n"
-                        f"他グループのメンバーがアンジュルムのメンバーやグループについて言及している部分を抽出し、指定のフォーマットで1つだけ要約を作成してください。\n\n"
+                        f"他グループのメンバーがアンジュルムのメンバーやグループについて言及している部分を抽出し、指定のフォーマットで1つだけ要約を作成してください。\n"
+                        f"アンジュルムに関する言及がないブログは表示不要です。\n\n"
                         f"■ 投稿者グループ: {group_key}\n"
                         f"■ 投稿者名(テーマ): {theme}\n"
                         f"■ ブログタイトル: {title}\n"
                         f"■ 本文: {description}\n\n"
                         f"【出力フォーマットと表現の厳格なルール】\n"
                         f"1. 挨拶、タイトル等は一切出力せず、純粋な要約文だけを出力してください。\n"
-                        f"2. 「誰がアンジュルムの誰と何をしていたか、何を話していたか、どんな言及（交流）があったか」を明確にしてください。\n"
+                        f"2. 「誰がアンジュルムの誰と何をしていたか、何を話していたか、どんな言及（交流）があったか」のコアな部分をエモーショナルに書いてください。\n"
                         f"3. 文章の最後に、ブログのURL（ {link_url} ）を必ず添えてください。\n"
-                        f"4. 【厳守】全体の文字数は、URLを除いて必ず60文字以内（厳守）にしてください。\n"
+                        f"4. 【厳守】全体の文字数は、URLを除いて必ず70文字以内（厳守）にしてください。\n"
                         f"5. 文頭には「💬 [グループ名略称・メンバー名]」という形式を記載してください。(例: 💬 [娘。小田]、💬 [Juice段原] )"
                     )
 
@@ -265,7 +272,7 @@ def main():
         # 他メン言及データがある場合は、下にコーナーとして合流させる
         if mention_tweets_data:
             mention_text = "\n\n".join(mention_tweets_data)
-            final_tweet += f"\n\nーーー\n💞他メンからのアンジュ言及・交流情報👇\n\n{mention_text}"
+            final_tweet += f"\n\nーーー\n✉️他のハロメンやOGより\n\n{mention_text}"
         
         print("\n[投稿内容の確認]")
         print(final_tweet)
