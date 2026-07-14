@@ -52,11 +52,13 @@ def send_line_message(message, image_urls=None):
             chunk = image_urls[idx:idx+4]
             messages = []
             for img_url in chunk:
-                print(f"【DEBUG】LINEメッセージ格納URL: {img_url}")
+                # 【最重要】LINE Messaging APIの仕様厳守のため、送信時のみ強制的・確実に https:// へ変換
+                secure_url = img_url.replace("http://", "https://")
+                print(f"【DEBUG】LINE送信確定URL(HTTPS化): {secure_url}")
                 messages.append({
                     "type": "image",
-                    "originalContentUrl": img_url,
-                    "previewImageUrl": img_url
+                    "originalContentUrl": secure_url,
+                    "previewImageUrl": secure_url
                 })
             payload_image = {
                 "to": user_id,
@@ -70,35 +72,35 @@ def send_line_message(message, image_urls=None):
                     if res.getcode() == 200:
                         print(f"LINEへの画像通知 ({idx+1}〜{idx+len(chunk)}枚目) が成功しました！")
             except Exception as e:
-                print(f"【DEBUG】LINE画像通知API実行エラー: {e}")
+                print(f"【DEBUG】LINE画像通知API演行エラー: {e}")
     else:
         print("\n【DEBUG】[LINE画像送信セクション] image_urls が空またはNoneのためスキップされました。")
 
 def main():
-    # 1. 各グループのURLリストを確実に画像が入る「atom.xml」に変更
+    # 1. 各グループのRSS URLリスト
     rss_urls = {
-        "angerme": "https://rssblog.ameba.jp/angerme-new/atom.xml",
-        "angerme-ss-shin": "https://rssblog.ameba.jp/angerme-ss-shin/atom.xml",
-        "morningmusume_15ki": "https://rssblog.ameba.jp/morningmusume15ki/atom.xml",
-        "morningmusume_16ki": "https://rssblog.ameba.jp/morningmusume16ki/atom.xml",
-        "morningmusume_10ki": "https://rssblog.ameba.jp/morningmusume-10ki/atom.xml",
-        "morningmusume_12ki": "https://rssblog.ameba.jp/morningmusume-12ki/atom.xml",
-        "juicejuice": "https://rssblog.ameba.jp/juicejuice-official/atom.xml",
-        "inaba-manaka": "https://rssblog.ameba.jp/inaba-manaka/atom.xml",
-        "tsubaki_factory_old": "https://rssblog.ameba.jp/tsubaki-factory/atom.xml",
-        "tsubaki_factory_new": "https://rssblog.ameba.jp/tsubaki-factory-new/atom.xml",
-        "beyooooonds_chicatetsu": "https://rssblog.ameba.jp/beyooooonds-chicatetsu/atom.xml",
-        "beyooooonds_rfro": "https://rssblog.ameba.jp/beyooooonds-rfro/atom.xml",
-        "beyooooonds_seasonings": "https://rssblog.ameba.jp/beyooooonds/atom.xml",
-        "beyooooonds_noname": "https://rssblog.ameba.jp/beyooooonds-blog/atom.xml",
-        "ocha_norma": "https://rssblog.ameba.jp/ocha-norma/atom.xml",
-        "rosychronicle": "https://rssblog.ameba.jp/rosychronicle/atom.xml"
+        "angerme": "https://rssblog.ameba.jp/angerme-new/rss20.xml",
+        "angerme-ss-shin": "https://rssblog.ameba.jp/angerme-ss-shin/rss20.xml",
+        "morningmusume_15ki": "https://rssblog.ameba.jp/morningmusume15ki/rss20.xml",
+        "morningmusume_16ki": "https://rssblog.ameba.jp/morningmusume16ki/rss20.xml",
+        "morningmusume_10ki": "https://rssblog.ameba.jp/morningmusume-10ki/rss20.xml",
+        "morningmusume_12ki": "https://rssblog.ameba.jp/morningmusume-12ki/rss20.xml",
+        "juicejuice": "https://rssblog.ameba.jp/juicejuice-official/rss20.xml",
+        "inaba-manaka": "https://rssblog.ameba.jp/inaba-manaka/rss20.xml",
+        "tsubaki_factory_old": "https://rssblog.ameba.jp/tsubaki-factory/rss20.xml",
+        "tsubaki_factory_new": "https://rssblog.ameba.jp/tsubaki-factory-new/rss20.xml",
+        "beyooooonds_chicatetsu": "https://rssblog.ameba.jp/beyooooonds-chicatetsu/rss20.xml",
+        "beyooooonds_rfro": "https://rssblog.ameba.jp/beyooooonds-rfro/rss20.xml",
+        "beyooooonds_seasonings": "https://rssblog.ameba.jp/beyooooonds/rss20.xml",
+        "beyooooonds_noname": "https://rssblog.ameba.jp/beyooooonds-blog/rss20.xml",
+        "ocha_norma": "https://rssblog.ameba.jp/ocha-norma/rss20.xml",
+        "rosychronicle": "https://rssblog.ameba.jp/rosychronicle/rss20.xml"
     }
 
     angerme_keywords = (
         r"アンジュルム|アンジュ|スマイレージ|スマ|"
         r"上國料|かみこ|萌衣|川村|文乃|かわむー|かむ|伊勢|鈴蘭|れいら|れら|れらたん|橋迫|鈴|鈴ちゃん|"
-        r"川名|凜|ケロ|ケロちゃん|為永|幸音|しおんぬ|ため|松本|わかな|わかにゃ|平山|遊季|ゆき|ぺいペイ|ぺい|"
+        r"川名|凜|ケロ|ケロちゃん|為永|幸音|しおんぬ|ため|松本|わかな|わかにゃ|平山|遊季|ゆき|ぺいぺい|ぺい|"
         r"下井谷|幸穂|ゆっぴょん|ゆきほ|後藤|花|はなな|ごっちん|長野|桃羽|もっち|もち|ももは"
     )
     
@@ -119,50 +121,31 @@ def main():
     all_extracted_image_urls = []   
 
     # ==========================================
-    # 処理①：各グループのブログAtomフィードを巡回・スキャン
+    # 処理①：各グループのブログRSSを巡回・スキャン
     # ==========================================
     for group_key, rss_url in rss_urls.items():
-        print(f"【Atomフィードスキャン中】: {group_key}")
+        print(f"【RSSスキャン中】: {group_key}")
         try:
             req_rss = urllib.request.Request(rss_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req_rss) as response:
-                xml_data = response.read()
-            root = ET.fromstring(xml_data)
-            
-            # Atom形式のネームスペース定義
-            ns = {'atom': 'http://www.w3.org/2005/Atom'}
-            items = root.findall("atom:entry", ns)
+                xml_raw_bytes = response.read()
+            root = ET.fromstring(xml_raw_bytes)
+            items = root.findall(".//item")
         except Exception as e:
-            print(f" -> フィード取得失敗 ({group_key}): {e}")
+            print(f" -> RSS取得失敗 ({group_key}): {e}")
             continue
 
         for item in items:
-            title = item.find("atom:title", ns).text if item.find("atom:title", ns) is not None else ""
+            title = item.find("title").text if item.find("title") is not None else ""
+            description = item.find("description").text if item.find("description") is not None else ""
+            link_url = item.find("link").text if item.find("link") is not None else ""
+            category_tag = item.find("category")
+            theme = category_tag.text if category_tag is not None else "不明"
             
-            # 本文(content または summary)の取得
-            content_tag = item.find("atom:content", ns)
-            description = content_tag.text if content_tag is not None else ""
-            if not description:
-                summary_tag = item.find("atom:summary", ns)
-                description = summary_tag.text if summary_tag is not None else ""
-            
-            # リンクURLの取得
-            link_tag = item.find("atom:link[@rel='alternate']", ns)
-            link_url = link_tag.attrib['href'] if link_tag is not None else ""
-            
-            # テーマ(カテゴリ)の取得
-            category_tag = item.find("atom:category", ns)
-            theme = category_tag.attrib['term'] if category_tag is not None and 'term' in category_tag.attrib else "不明"
-            
-            pub_date_str = item.find("atom:published", ns).text if item.find("atom:published", ns) is not None else ""
-            if not pub_date_str:
-                pub_date_str = item.find("atom:updated", ns).text if item.find("atom:updated", ns) is not None else ""
-            
+            pub_date_str = item.find("pubDate").text
             try:
-                # AtomのISO 8601等、様々な時間表記パターンに柔軟に対応
-                pub_date_str = pub_date_str.replace("Z", "+00:00")
-                pub_date = datetime.fromisoformat(pub_date_str)
-            except Exception:
+                pub_date = datetime.strptime(pub_date_str, "%a, %d %b %Y %H:%M:%S %z")
+            except ValueError:
                 continue
             
             if not (start_of_yesterday <= pub_date <= end_of_yesterday):
@@ -172,32 +155,44 @@ def main():
             if group_key in ["angerme", "angerme-ss-shin"]:
                 print(f" -> 【アンジュルム本日判定一致】: {theme} - {title}")
                 
-                # 【最重要】Atom特有の画像リンクリストからURLを安全に抽出
                 corrected_img_urls = []
-                image_links = item.findall("atom:link[@rel='image']", ns)
-                print(f"   【DEBUG】Atomから見つかった画像リンク数: {len(image_links)}")
                 
-                for img_link in image_links:
-                    url = img_link.attrib.get('href', '')
-                    if url and "stat.ameba.jp" in url:
-                        if "charimages" in url or "blog_import" in url:
-                            continue
-                        http_url = url.replace("https://", "http://")
-                        print(f"   【DEBUG】画像URL抽出成功: {http_url}")
-                        if http_url not in corrected_img_urls:
-                            corrected_img_urls.append(http_url)
-                
-                # 万が一Atomタグから画像が取れなかった場合のセーフティネット（正規表現）
-                if not corrected_img_urls and description:
-                    raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>]+', description)
-                    for url in raw_img_matches:
-                        url = url.split('"')[0].split("'")[0].split('>')[0].split(' ')[0]
-                        if "charimages" in url or "blog_import" in url:
-                            continue
-                        http_url = url.replace("https://", "http://")
-                        if http_url not in corrected_img_urls:
-                            corrected_img_urls.append(http_url)
+                # 記事HTMLスクレイピング（検証済み・完璧に機能中）
+                if link_url:
+                    print(f"   【DEBUG】記事HTMLから直接画像URLを取得します: {link_url}")
+                    try:
+                        req_html = urllib.request.Request(link_url, headers={'User-Agent': 'Mozilla/5.0'})
+                        with urllib.request.urlopen(req_html) as html_res:
+                            html_content = html_res.read().decode('utf-8', errors='ignore')
+                        
+                        raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>&\?]+', html_content)
+                        print(f"   【DEBUG】HTML内から見つかった候補数: {len(raw_img_matches)}")
+                        
+                        for url in raw_img_matches:
+                            url = url.split('"')[0].split("'")[0].split('>')[0].split('<')[0].split(' ')[0]
+                            if "charimages" in url or "blog_import" in url:
+                                continue
+                            if not any(ext in url.lower() for ext in [".jpg", ".jpeg", ".png"]):
+                                continue
+                            
+                            # Xダウンロード用に一度 http:// で保持
+                            http_url = url.replace("https://", "http://")
+                            if http_url not in corrected_img_urls:
+                                print(f"   【DEBUG】画像URL取得成功: {http_url}")
+                                corrected_img_urls.append(http_url)
+                    except Exception as html_err:
+                        print(f"   【DEBUG】記事HTMLの直接取得失敗: {html_err}")
 
+                if not corrected_img_urls and description:
+                    raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>&\?]+', description)
+                    for url in raw_img_matches:
+                        url = url.split('"')[0].split("'")[0].split('>')[0].split('<')[0].split(' ')[0]
+                        if "charimages" in url or "blog_import" in url or not any(ext in url.lower() for ext in [".jpg", ".jpeg", ".png"]):
+                            continue
+                        http_url = url.replace("https://", "http://")
+                        if http_url not in corrected_img_urls:
+                            corrected_img_urls.append(http_url)
+                
                 for url in corrected_img_urls:
                     if url not in all_extracted_image_urls:
                         all_extracted_image_urls.append(url)
@@ -207,7 +202,7 @@ def main():
                     f"指定のフォーマットの【超要約】を1つだけ作成してください。\n\n"
                     f"■ メンバー名(テーマ): {theme}\n"
                     f"■ 今回のブログタイトル: {title}\n"
-                    f"■ 今回の本文: {description[:500]}...\n\n"  # トークン節約とエラー回避のため一部抽出
+                    f"■ 今回の本文: {description[:500]}...\n\n"
                     f"【出力フォーマットと表現の厳格なルール】\n"
                     f"1. 挨拶、タイトル等は一切出力せず、純粋な要約文（2〜3行程度）だけを出力してください。\n"
                     f"2. ブログにある日常の出来事や感想などの内容を拾って構成してください。\n"
@@ -260,7 +255,7 @@ def main():
                         f"2. アンジュルムのメンバーの記述には、必ず上記の【あだ名】（例: もっち、かみこ、わかにゃ等）を使ってください。\n"
                         f"3. トンマナはアンジュルム本人の要約ルールを厳守してください。メンバーの口調のまま表現する部分は「」書きに、客観的なまとめは「」なしに構成してください。\n"
                         f"4. 文章の最後に、ブログのURL（ {link_url} ）を必ず添えてください。\n"
-                        f"5. 【厳守】全体の文字数は、URLを除いて必ず70文字以内（厳守）にしてください。\n"
+                        f"5. 【厳守】全体の文字数は, URLを除いて必ず70文字以内（厳守）にしてください。\n"
                         f"6. 文頭のグループ名略称のブラケット部分は、必ず指定の6パターン【 娘。、つばき、Juice、OCHA、BEYO、ロージー 】のいずれか、または【 OG 】のみに統一してください。(例: 💬 [娘。小田]、💬 [Juice段原] )"
                     )
 
@@ -297,8 +292,6 @@ def main():
         print(final_tweet)
         
         print(f"\n【DEBUG】[投稿一括処理セクション] 最終的に集まった全画像URL総数: {len(all_extracted_image_urls)}")
-        for idx, u in enumerate(all_extracted_image_urls):
-            print(f"【DEBUG】全画像リスト[{idx}]: {u}")
 
         if not IS_TEST_MODE:
             auth = tweepy.OAuth1UserHandler(
