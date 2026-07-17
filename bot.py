@@ -289,13 +289,13 @@ def main():
             f"#アンジュルムブログ定期便🪽\n"
             f"{time_str} ※忙しい人向けブログ要約です👍\n\n"
             f"{summary_text}\n\n"
-            f"​AI要約のため、事実や本人の意図と異なる内容となる場合がございます。\n"
+            f"​※AI要約のため、事実や本人の意図と異なる内容となる場合がございます。\n"
             f"🔗 一覧: https://ameblo.jp/angerme-new/"
         )
         
         if mention_tweets_data:
             mention_text = "\n\n".join(mention_tweets_data)
-            final_tweet += f"\n\nーーー\n✉️他のハロメンやOGより\n\n{mention_text}"
+            final_tweet += f"\nーーー\n✉️他のハロメンやOGより\n\n{mention_text}"
         
         print("\n[投稿内容の確認]")
         print(final_tweet)
