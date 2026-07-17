@@ -13,7 +13,7 @@ from google.genai import types
 import tweepy
 
 # ★テスト設定：ここを True にするとX投稿をスキップし、LINE通知のみ行います
-IS_TEST_MODE = True
+IS_TEST_MODE = False
 
 def send_line_message(message, image_urls=None):
     """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る"""
