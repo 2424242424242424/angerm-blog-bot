@@ -13,7 +13,7 @@ from google.genai import types
 import tweepy
 
 # ★テスト設定：ここを True にするとX投稿をスキップし、LINE通知のみ行います
-IS_TEST_MODE = False
+IS_TEST_MODE = True
 
 def send_line_message(message, image_urls=None):
     """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る"""
@@ -157,16 +157,13 @@ def main():
                 
                 corrected_img_urls = []
                 
-                # 記事HTMLスクレイピング（検証済み・完璧に機能中）
                 if link_url:
-                    print(f"   【DEBUG】記事HTMLから直接画像URLを取得します: {link_url}")
                     try:
                         req_html = urllib.request.Request(link_url, headers={'User-Agent': 'Mozilla/5.0'})
                         with urllib.request.urlopen(req_html) as html_res:
                             html_content = html_res.read().decode('utf-8', errors='ignore')
                         
                         raw_img_matches = re.findall(r'https://stat\.ameba\.jp/user_images/[^\s"\'<>&\?]+', html_content)
-                        print(f"   【DEBUG】HTML内から見つかった候補数: {len(raw_img_matches)}")
                         
                         for url in raw_img_matches:
                             url = url.split('"')[0].split("'")[0].split('>')[0].split('<')[0].split(' ')[0]
@@ -175,10 +172,8 @@ def main():
                             if not any(ext in url.lower() for ext in [".jpg", ".jpeg", ".png"]):
                                 continue
                             
-                            # Xダウンロード用に一度 http:// で保持
                             http_url = url.replace("https://", "http://")
                             if http_url not in corrected_img_urls:
-                                print(f"   【DEBUG】画像URL取得成功: {http_url}")
                                 corrected_img_urls.append(http_url)
                     except Exception as html_err:
                         print(f"   【DEBUG】記事HTMLの直接取得失敗: {html_err}")
@@ -226,7 +221,6 @@ def main():
                         req_img = urllib.request.Request(corrected_img_urls[0], headers={'User-Agent': 'Mozilla/5.0'})
                         img_data = urllib.request.urlopen(req_img).read()
                         contents.append(types.Part.from_bytes(data=img_data, mime_type="image/jpeg"))
-                        print("   【DEBUG】Gemini送信用の第1画像オブジェクト化に成功")
                     except Exception as e:
                         print(f"   [Gemini用画像読み込み失敗] {e}")
 
@@ -240,6 +234,21 @@ def main():
             # --- 他のハロプロブログの場合の処理（アンジュルム言及チェック） ---
             else:
                 if re.search(angerme_keywords, title) or (description and re.search(angerme_keywords, description)):
+                    
+                    # ★修正点1: 名前（テーマ）が不明な場合、記事のHTMLから強引に取得を試みる
+                    if theme == "不明" and link_url:
+                        try:
+                            req_html = urllib.request.Request(link_url, headers={'User-Agent': 'Mozilla/5.0'})
+                            with urllib.request.urlopen(req_html) as html_res:
+                                html_content = html_res.read().decode('utf-8', errors='ignore')
+                            # Amebaブログの標準的なテーマ表記（例：テーマ：<a href="...">〇〇</a>）を抽出
+                            theme_match = re.search(r'テーマ：\s*<a[^>]*>([^<]+)</a>', html_content)
+                            if theme_match:
+                                theme = theme_match.group(1).strip()
+                        except Exception as html_err:
+                            print(f"   【DEBUG】テーマ取得のためのHTMLパース失敗: {html_err}")
+
+                    # ★修正点2・3: BEYOOOOONDSの「はな」除外設定、過去記事の排除、不明時の推測ルールを追加
                     prompt_mention = (
                         f"あなたはハロー！プロジェクトの熱心なファンであり、厳密なフィルター検閲を行う優秀な広報アシスタントです。\n"
                         f"提供されたブログの文章を【超厳密に】解析し、指定された【本物のアンジュルム現役メンバー】または【アンジュルムというグループ全体】に対する具体的な言及や直接の交流（ツーショット、会話、具体的なエピソードなど）が【本文中に確実に存在する場合のみ】、指定のフォーマットで要約を作成してください。\n\n"
@@ -247,30 +256,31 @@ def main():
                         f"・長野桃羽 (あだ名: もっち、もち、ももは) ※「もっち」は平山遊季や松本わかなのことではありません\n"
                         f"・上國料萌衣 (かみこ、かみ) / 川村文乃 (かわむー、かむ) / 伊勢鈴蘭 (れら、れらたん、れらぴ) / 橋迫鈴 (鈴ちゃん、りんこ、はっさこ)\n"
                         f"・川名凜 (ケロ、ケロちゃん、ケロンヌ、なりん、ンヌ) / 為永幸音 (しおんぬ、ため、んぬ、ためんぬ) / 松本わかな (わかにゃ、わーちゃん)\n"
-                        f"・平山遊季 (ゆきちゃん、ぺい、ぺいぺい) / 下井谷幸穂 (ゆっぴょん、ゆぴょ、もい、もいもい) / 後藤花 (はなな、ごっちん、)\n\n"
+                        f"・平山遊季 (ゆきちゃん、ぺい、ぺいぺい) / 下井谷幸穂 (ゆっぴょん、ゆぴょ、もい、もいもい) / 後藤花 (はなな、ごっちん)\n\n"
                         f"【❌ 厳格な誤判定・ハルシネーション防止ルール（厳守）】\n"
                         f"1. **「言及なし」なら絶対に空白で返すこと**：\n"
-                        f"   提供された本文の中に、上記のアンジュルムメンバー（あだ名含む）や「アンジュルム」というグループ名への具体的な言及が【1箇所も存在しない場合】は、絶対に要約を作成しないでください。\n"
-                        f"   その場合は、言い訳や「該当なし」などの説明文も一切出力せず、完全に【空白（空文字）】のみを返してください。\n"
+                        f"   提供された本文の中に、上記のアンジュルムメンバー（あだ名含む）や「アンジュルム」への具体的な言及が【1箇所も存在しない場合】は、絶対に要約を作成しないでください。言い訳や説明文も一切出力せず、完全に【空白（空文字）】のみを返してください。\n"
                         f"2. **無関係な単語での誤検知禁止**：\n"
-                        f"   他グループのメンバー（例：櫻井梨央の「らいりー」「りーちゃん」等）や、一般名詞の「雪（ゆき）」「花（はな）」、または「あんじゅ」といった名前の一般人など、アンジュルム現役メンバーとは無関係な単語に引っかかって要約を作らないでください。文脈を正しく読み、関係がなければ【空白（空文字）】で返してください。\n"
-                        f"3. **投稿者名の勝手な変更禁止**：\n"
-                        f"   ブログの投稿者は必ず「テーマ: {theme}」の人物です。勝手に投稿者名を変更したり捏造したりしないでください。\n\n"
+                        f"   他グループのメンバー（例：櫻井梨央の「らいりー」等）や、一般名詞に引っかかって要約を作らないでください。\n"
+                        f"   ★【特別ルール】BEYOOOOONDSのブログにおいて「はな」という名前が出た場合、それは小島はなのことです。アンジュルムの「後藤花」への言及ではないため、絶対に抽出対象外（空白）としてください。\n"
+                        f"3. **過去記事（再アップ）の排除**：\n"
+                        f"   本日の日付は {now.strftime('%Y年%m月%d日')} です。昨日のブログの出来事を抽出してください。Amebaブログの仕様で過去の記事が再アップされることがありますが、本文の内容が明らかに過去の古い出来事（数ヶ月〜数年前）である場合は抽出対象外（空白）としてください。\n"
+                        f"4. **投稿者名の推測と設定**：\n"
+                        f"   ブログの投稿者は「テーマ: {theme}」です。もしここが「不明」の場合のみ、本文の挨拶（例:「〇〇です」）からブログ執筆者（メンバー名）を推測して使用してください。\n\n"
                         f"■ 投稿者グループ: {group_key}\n"
                         f"■ 投稿者名(テーマ): {theme}\n"
                         f"■ ブログタイトル: {title}\n"
                         f"■ 本文: {description[:450] if description else ''}...\n\n"
                         f"【出力フォーマット・トンマナの厳格なルール】※該当する場合のみ\n"
                         f"1. 挨拶や前置きは一切出力せず、純粋な要約文（URL除いて70文字以内）だけを出力してください。\n"
-                        f"2. アンジュルムのメンバーの記述には、必ず上記の【あだ名】（例: もっち、かみこ、わかにゃ等）を使用してください。\n"
+                        f"2. アンジュルムのメンバーの記述には、必ず上記の【あだ名】を使用してください。\n"
                         f"3. メンバーの口調のまま表現する部分は「」書きに、客観的なまとめは「」なしに構成してください。\n"
                         f"4. 文章の最後に、ブログのURL（ {link_url} ）を必ず添えてください。\n"
-                        f"5. 文頭のグループ名略称のブラケット部分は、提供された【テーマ名: {theme}】をそのまま使い、以下の指定6パターン＋OGのいずれかの形式で出力してください。\n"
-                        f"   ・[娘。{theme}] / [つばき{theme}] / [Juice{theme}] / [OCHA{theme}] / [BEYO{theme}] / [ロージー{theme}] / [OG{theme}]\n"
-                        f"   (例: 💬 [娘。{theme}]、💬 [Juice{theme}] )"
+                        f"5. 文頭のグループ名略称のブラケット部分は、以下の指定パターンのいずれかの形式で出力してください。\n"
+                        f"   ・[娘。〇〇] / [つばき〇〇] / [Juice〇〇] / [OCHA〇〇] / [BEYO〇〇] / [ロージー〇〇] / [OG〇〇]\n"
+                        f"   ※〇〇には投稿者名（テーマ名、または推測した執筆者名）を入れてください。「不明」という文字は絶対に出力しないでください。\n"
+                        f"   (例: 💬 [娘。生田衣梨奈]、💬 [Juice段原瑠々] )"
                     )
-
-
 
                     try:
                         response = client_gemini.models.generate_content(model='gemini-2.5-flash', contents=[prompt_mention])
@@ -374,10 +384,4 @@ def main():
             print("\n[テストモード] Xへの投稿処理はスキップされました。")
             
         line_message = f"\n【X投稿内容（テストモード）】\n{final_tweet}" if IS_TEST_MODE else f"\n【X投稿内容】\n{final_tweet}"
-        send_line_message(line_message, image_urls=all_extracted_image_urls)
         
-    else:
-        print("対象期間（前日）内に、アンジュルム公式ブログおよび他グループの言及ブログは存在しませんでした。")
-
-if __name__ == "__main__":
-    main()
