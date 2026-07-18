@@ -13,7 +13,7 @@ from google.genai import types
 import tweepy
 
 # ★テスト設定：ここを True にするとX投稿をスキップし、LINE通知のみ行います
-IS_TEST_MODE = True
+IS_TEST_MODE = False
 
 def send_line_message(message, image_urls=None):
     """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る"""
@@ -384,4 +384,10 @@ def main():
             print("\n[テストモード] Xへの投稿処理はスキップされました。")
             
         line_message = f"\n【X投稿内容（テストモード）】\n{final_tweet}" if IS_TEST_MODE else f"\n【X投稿内容】\n{final_tweet}"
+        send_line_message(line_message, image_urls=all_extracted_image_urls)
         
+    else:
+        print("対象期間（前日）内に、アンジュルム公式ブログおよび他グループの言及ブログは存在しませんでした。")
+
+if __name__ == "__main__":
+    main()
