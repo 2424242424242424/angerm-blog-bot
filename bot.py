@@ -16,7 +16,7 @@ import tweepy
 IS_TEST_MODE = False
 
 # ★画像投稿スパム対策：ここを False にすると、Xへの画像添付と返信ツリーをスキップします（テキストのみ投稿）
-ENABLE_X_IMAGE_UPLOAD = False
+ENABLE_X_IMAGE_UPLOAD = True
 
 def send_line_message(message, image_urls=None):
     """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る"""
