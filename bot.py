@@ -15,6 +15,9 @@ import tweepy
 # ★テスト設定：ここを True にするとX投稿をスキップし、LINE通知のみ行います
 IS_TEST_MODE = False
 
+# ★画像投稿スパム対策：ここを False にすると、Xへの画像添付と返信ツリーをスキップします（テキストのみ投稿）
+ENABLE_X_IMAGE_UPLOAD = False
+
 def send_line_message(message, image_urls=None):
     """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る"""
     channel_access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
@@ -235,20 +238,17 @@ def main():
             else:
                 if re.search(angerme_keywords, title) or (description and re.search(angerme_keywords, description)):
                     
-                    # ★修正点1: 名前（テーマ）が不明な場合、記事のHTMLから強引に取得を試みる
                     if theme == "不明" and link_url:
                         try:
                             req_html = urllib.request.Request(link_url, headers={'User-Agent': 'Mozilla/5.0'})
                             with urllib.request.urlopen(req_html) as html_res:
                                 html_content = html_res.read().decode('utf-8', errors='ignore')
-                            # Amebaブログの標準的なテーマ表記（例：テーマ：<a href="...">〇〇</a>）を抽出
                             theme_match = re.search(r'テーマ：\s*<a[^>]*>([^<]+)</a>', html_content)
                             if theme_match:
                                 theme = theme_match.group(1).strip()
                         except Exception as html_err:
                             print(f"   【DEBUG】テーマ取得のためのHTMLパース失敗: {html_err}")
 
-                    # ★修正点2・3: BEYOOOOONDSの「はな」除外設定、過去記事の排除、不明時の推測ルールを追加
                     prompt_mention = (
                         f"あなたはハロー！プロジェクトの熱心なファンであり、厳密なフィルター検閲を行う優秀な広報アシスタントです。\n"
                         f"提供されたブログの文章を【超厳密に】解析し、指定された【本物のアンジュルム現役メンバー】または【アンジュルムというグループ全体】に対する具体的な言及や直接の交流（ツーショット、会話、具体的なエピソードなど）が【本文中に確実に存在する場合のみ】、指定のフォーマットで要約を作成してください。\n\n"
@@ -336,58 +336,51 @@ def main():
             all_media_ids = []
             temp_files = []
 
-            print(f"\n[画像アップロード開始] 合計 {len(all_extracted_image_urls)} 枚の処理中...")
-            for idx, img_url in enumerate(all_extracted_image_urls):
-                try:
-                    req_img = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
-                    img_data = urllib.request.urlopen(req_img).read()
-                    
-                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-                    temp_file.write(img_data)
-                    temp_file.close()
-                    temp_files.append(temp_file.name)
-                    
-                    media = api_v1.media_upload(filename=temp_file.name)
-                    all_media_ids.append(media.media_id_string)
-                    print(f" -> アップロード成功 ({idx+1}/{len(all_extracted_image_urls)}): {img_url}")
-                except Exception as img_err:
-                    print(f" -> アップロード失敗 ({img_url}): {img_err}")
-            
+            # ★ 画像のXへのアップロードを制御
+            if ENABLE_X_IMAGE_UPLOAD:
+                print(f"\n[画像アップロード開始] 合計 {len(all_extracted_image_urls)} 枚の処理中...")
+                for idx, img_url in enumerate(all_extracted_image_urls):
+                    try:
+                        req_img = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
+                        img_data = urllib.request.urlopen(req_img).read()
+                        
+                        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+                        temp_file.write(img_data)
+                        temp_file.close()
+                        temp_files.append(temp_file.name)
+                        
+                        media = api_v1.media_upload(filename=temp_file.name)
+                        all_media_ids.append(media.media_id_string)
+                        print(f" -> アップロード成功 ({idx+1}/{len(all_extracted_image_urls)}): {img_url}")
+                    except Exception as img_err:
+                        print(f" -> アップロード失敗 ({img_url}): {img_err}")
+            else:
+                print("\n[設定により、Xへの画像アップロード処理をスキップします（テキストのみ投稿）]")
+
             parent_tweet_id = None
             try:
-                parent_media_ids = all_media_ids[:4]
-                if parent_media_ids:
+                # ★ 画像付きかテキストのみかを制御
+                if ENABLE_X_IMAGE_UPLOAD and all_media_ids:
+                    parent_media_ids = all_media_ids[:4]
                     response_tweet = client_x.create_tweet(text=final_tweet, media_ids=parent_media_ids)
                 else:
                     response_tweet = client_x.create_tweet(text=final_tweet)
+                    
                 parent_tweet_id = response_tweet.data["id"]
                 print(f"Xへの本番親投稿が成功しました！ (ID: {parent_tweet_id})")
             except Exception as e:
                 print(f"X（Twitter）親投稿エラー: {e}")
-                return
-
-            reply_images_groups = [all_media_ids[i:i + 4] for i in range(4, len(all_media_ids), 4)]
-            if reply_images_groups:
-                reply_target_id = parent_tweet_id
-                for g_idx, media_group in enumerate(reply_images_groups):
-                    try:
-                        reply_text = f"📸 ブログ写真まとめ ({g_idx + 1}/{len(reply_images_groups)})"
-                        res_reply = client_x.create_tweet(text=reply_text, media_ids=media_group, in_reply_to_tweet_id=reply_target_id)
-                        reply_target_id = res_reply.data["id"]
-                        time.sleep(2)
-                    except Exception as reply_err:
-                        print(f"返信ツリー投稿エラー: {reply_err}")
-
-            for path in temp_files:
-                if os.path.exists(path): os.remove(path)
-        else:
-            print("\n[テストモード] Xへの投稿処理はスキップされました。")
             
-        line_message = f"\n【X投稿内容（テストモード）】\n{final_tweet}" if IS_TEST_MODE else f"\n【X投稿内容】\n{final_tweet}"
-        send_line_message(line_message, image_urls=all_extracted_image_urls)
-        
-    else:
-        print("対象期間（前日）内に、アンジュルム公式ブログおよび他グループの言及ブログは存在しませんでした。")
-
-if __name__ == "__main__":
-    main()
+            # ★親投稿が成功し、かつ画像アップロードがONの場合のみツリー返信
+            if parent_tweet_id and ENABLE_X_IMAGE_UPLOAD:
+                reply_images_groups = [all_media_ids[i:i + 4] for i in range(4, len(all_media_ids), 4)]
+                if reply_images_groups:
+                    reply_target_id = parent_tweet_id
+                    for g_idx, media_group in enumerate(reply_images_groups):
+                        try:
+                            reply_text = f"📸 ブログ写真まとめ ({g_idx + 1}/{len(reply_images_groups)})"
+                            res_reply = client_x.create_tweet(text=reply_text, media_ids=media_group, in_reply_to_tweet_id=reply_target_id)
+                            reply_target_id = res_reply.data["id"]
+                            time.sleep(2)
+                        except Exception as reply_err:
+                            print(f"返信ツリー投稿エラ
