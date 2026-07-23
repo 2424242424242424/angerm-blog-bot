@@ -1,6 +1,7 @@
 import os
 import urllib.request
 import urllib.parse
+import urllib.error
 import json
 import re
 import xml.etree.ElementTree as ET
@@ -19,7 +20,7 @@ IS_TEST_MODE = False
 ENABLE_X_IMAGE_UPLOAD = True
 
 def send_line_message(message, image_urls=None):
-    """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る"""
+    """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る（画像スキップ版）"""
     channel_access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     user_id = os.environ.get("LINE_USER_ID")
     
@@ -33,7 +34,7 @@ def send_line_message(message, image_urls=None):
         "Authorization": f"Bearer {channel_access_token}"
     }
     
-    # 1. まずテキストメッセージを送信
+    # 1. テキストメッセージのみ送信
     payload_text = {
         "to": user_id,
         "messages": [{"type": "text", "text": message}]
@@ -45,39 +46,14 @@ def send_line_message(message, image_urls=None):
         with urllib.request.urlopen(req) as res:
             if res.getcode() == 200:
                 print("LINEへのテキスト通知が正常に成功しました！")
+    except urllib.error.HTTPError as e:
+        error_msg = e.read().decode('utf-8')
+        print(f"LINEテキスト通知 APIエラー ({e.code}): {error_msg}")
     except Exception as e:
-        print(f"LINEテキスト通知エラー: {e}")
+        print(f"LINEテキスト通知 システムエラー: {e}")
 
-    # 2. 画像がある場合は最大4枚ずつ別メッセージで送信
-    if image_urls:
-        print(f"\n【DEBUG】[LINE画像送信セクション] 処理を開始します。対象URL数: {len(image_urls)}")
-        for idx in range(0, len(image_urls), 4):
-            chunk = image_urls[idx:idx+4]
-            messages = []
-            for img_url in chunk:
-                # 【最重要】LINE Messaging APIの仕様厳守のため、送信時のみ強制的・確実に https:// へ変換
-                secure_url = img_url.replace("http://", "https://")
-                print(f"【DEBUG】LINE送信確定URL(HTTPS化): {secure_url}")
-                messages.append({
-                    "type": "image",
-                    "originalContentUrl": secure_url,
-                    "previewImageUrl": secure_url
-                })
-            payload_image = {
-                "to": user_id,
-                "messages": messages
-            }
-            try:
-                data_image = json.dumps(payload_image).encode("utf-8")
-                req = urllib.request.Request(url, data=data_image, headers=headers, method="POST")
-                with urllib.request.urlopen(req) as res:
-                    print(f"【DEBUG】LINE画像送信API レスポンスステータス: {res.getcode()}")
-                    if res.getcode() == 200:
-                        print(f"LINEへの画像通知 ({idx+1}〜{idx+len(chunk)}枚目) が成功しました！")
-            except Exception as e:
-                print(f"【DEBUG】LINE画像通知API演行エラー: {e}")
-    else:
-        print("\n【DEBUG】[LINE画像送信セクション] image_urls が空またはNoneのためスキップされました。")
+    # 2. 画像送信スキップ
+    print("\n【DEBUG】[LINE画像送信セクション] 無料枠上限対策のため、LINEへの画像送信はスキップされました。")
 
 def main():
     # 1. 各グループのRSS URLリスト
@@ -398,3 +374,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
