@@ -19,8 +19,11 @@ IS_TEST_MODE = False
 # ★画像投稿スパム対策：ここを False にすると、Xへの画像添付と返信ツリーをスキップします（テキストのみ投稿）
 ENABLE_X_IMAGE_UPLOAD = True
 
+# ★LINE画像通知設定：ここを False にすると、LINEへの画像通知をスキップします（メッセージのみ送信）
+ENABLE_LINE_IMAGE_NOTIFICATION = True
+
 def send_line_message(message, image_urls=None):
-    """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る（画像スキップ版）"""
+    """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る（全画像一括対応版）"""
     channel_access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     user_id = os.environ.get("LINE_USER_ID")
     
@@ -34,26 +37,46 @@ def send_line_message(message, image_urls=None):
         "Authorization": f"Bearer {channel_access_token}"
     }
     
-    # 1. テキストメッセージのみ送信
-    payload_text = {
-        "to": user_id,
-        "messages": [{"type": "text", "text": message}]
-    }
+    # 1. 全メッセージを格納するリスト（まずはテキスト）
+    all_messages = [{"type": "text", "text": message}]
     
-    try:
-        data_text = json.dumps(payload_text).encode("utf-8")
-        req = urllib.request.Request(url, data=data_text, headers=headers, method="POST")
-        with urllib.request.urlopen(req) as res:
-            if res.getcode() == 200:
-                print("LINEへのテキスト通知が正常に成功しました！")
-    except urllib.error.HTTPError as e:
-        error_msg = e.read().decode('utf-8')
-        print(f"LINEテキスト通知 APIエラー ({e.code}): {error_msg}")
-    except Exception as e:
-        print(f"LINEテキスト通知 システムエラー: {e}")
+    # 2. 画像フラグがTrueなら、すべての画像をメッセージオブジェクトとして追加
+    if ENABLE_LINE_IMAGE_NOTIFICATION and image_urls:
+        for img_url in image_urls:
+            # LINEの仕様上、httpsである必要があるため置換
+            secure_img_url = img_url.replace("http://", "https://")
+            all_messages.append({
+                "type": "image",
+                "originalContentUrl": secure_img_url,
+                "previewImageUrl": secure_img_url
+            })
+    
+    # 3. LINE APIの制限（1回につき最大5件）に合わせて分割送信
+    for i in range(0, len(all_messages), 5):
+        chunk = all_messages[i:i+5]
+        payload = {
+            "to": user_id,
+            "messages": chunk
+        }
+        
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            with urllib.request.urlopen(req) as res:
+                if res.getcode() == 200:
+                    print(f"LINEへの通知（{i+1}〜{i+len(chunk)}件目）が正常に成功しました！")
+        except urllib.error.HTTPError as e:
+            error_msg = e.read().decode('utf-8')
+            print(f"LINE通知 APIエラー ({e.code}): {error_msg}")
+        except Exception as e:
+            print(f"LINE通知 システムエラー: {e}")
+        
+        # 連続でリクエストを送るとLINE側の制限に引っかかる可能性があるため、1秒待機
+        time.sleep(1)
 
-    # 2. 画像送信スキップ
-    print("\n【DEBUG】[LINE画像送信セクション] 無料枠上限対策のため、LINEへの画像送信はスキップされました。")
+    # 画像スキップ時のログ出力
+    if not ENABLE_LINE_IMAGE_NOTIFICATION:
+        print("\n【DEBUG】[LINE画像送信セクション] 設定によりLINEへの画像送信はスキップされました（テキストのみ送信）。")
 
 def main():
     # 1. 各グループのRSS URLリスト
@@ -374,4 +397,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
