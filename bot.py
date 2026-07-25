@@ -20,7 +20,7 @@ IS_TEST_MODE = False
 ENABLE_X_IMAGE_UPLOAD = True
 
 # ★LINE画像通知設定：ここを False にすると、LINEへの画像通知をスキップします（メッセージのみ送信）
-ENABLE_LINE_IMAGE_NOTIFICATION = True
+ENABLE_LINE_IMAGE_NOTIFICATION = False
 
 def send_line_message(message, image_urls=None):
     """LINE Messaging APIを使って自分のLINEへプッシュ通知を送る（全画像一括対応版）"""
