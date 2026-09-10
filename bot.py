@@ -227,7 +227,7 @@ def main():
                         print(f"   [Gemini用画像読み込み失敗] {e}")
 
                 try:
-                    response = client_gemini.models.generate_content(model='gemini-1.5-pro', contents=contents)
+                    response = client_gemini.models.generate_content(model='gemini-2.5-pro', contents=contents)
                     result_text = response.text.strip() if response.text else ""
                     if result_text: processed_tweets_data.append(result_text)
                 except Exception as e:
