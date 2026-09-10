@@ -389,4 +389,11 @@ def main():
         else:
             print("\n[テストモード] Xへの投稿処理はスキップされました。")
             
-        line_message = f"\n【X投稿内容（テストモード）】\n{final_tweet}" if IS_TEST_MODE else f
+        line_message = f"\n【X投稿内容（テストモード）】\n{final_tweet}" if IS_TEST_MODE else f"\n【X投稿内容】\n{final_tweet}"
+        send_line_message(line_message, image_urls=all_extracted_image_urls)
+        
+    else:
+        print("対象期間（前日）内に、アンジュルム公式ブログおよび他グループの言及ブログは存在しませんでした。")
+
+if __name__ == "__main__":
+    main()
