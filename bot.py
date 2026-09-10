@@ -17,7 +17,7 @@ import tweepy
 IS_TEST_MODE = False
 
 # ★画像投稿スパム対策：ここを False にすると、Xへの画像添付と返信ツリーをスキップします（テキストのみ投稿）
-ENABLE_X_IMAGE_UPLOAD = False
+ENABLE_X_IMAGE_UPLOAD = True
 
 # ★LINE画像通知設定：ここを False にすると、LINEへの画像通知をスキップします（メッセージのみ送信）
 ENABLE_LINE_IMAGE_NOTIFICATION = False
@@ -389,11 +389,4 @@ def main():
         else:
             print("\n[テストモード] Xへの投稿処理はスキップされました。")
             
-        line_message = f"\n【X投稿内容（テストモード）】\n{final_tweet}" if IS_TEST_MODE else f"\n【X投稿内容】\n{final_tweet}"
-        send_line_message(line_message, image_urls=all_extracted_image_urls)
-        
-    else:
-        print("対象期間（前日）内に、アンジュルム公式ブログおよび他グループの言及ブログは存在しませんでした。")
-
-if __name__ == "__main__":
-    main()
+        line_message = f"\n【X投稿内容（テストモード）】\n{final_tweet}" if IS_TEST_MODE else f
